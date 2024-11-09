@@ -2,9 +2,40 @@
 
 ![CI](https://github.com/nitro-bio/molstar-easy/actions/workflows/main.yml/badge.svg)
 
-## React Component Library for Life Science Apps
-
 [Documentation](https://docs.nitro.bio)
+
+## Quickstart
+
+```sh
+npm i @nitro-bio/molstar-easy
+```
+
+```tsx
+import { MoleculeViewer } from "@nitro-bio/molstar-easy";
+export const Demo = () => {
+  const highlight = {
+    label: { text: "Red Annotation", hexColor: "#881337", scale: 1 },
+    start: 14,
+    end: 30,
+  };
+  const pdbUrl = "https://files.rcsb.org/download/1CRN.pdb";
+  const [pdbStr, setPdbStr] = useState<string | null>(null);
+  useEffect(
+    function fetchPDB() {
+      fetch(pdbUrl)
+        .then((res) => res.text())
+        .then((pdbStr) => setPdbStr(pdbStr));
+    },
+    [pdbUrl],
+  );
+
+  return (
+    <div>
+      {pdbStr && <MoleculeViewer pdbStr={pdbStr} highlights={[highlight]} />}
+    </div>
+  );
+};
+```
 
 ## Development
 

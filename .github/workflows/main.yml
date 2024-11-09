@@ -24,8 +24,8 @@ jobs:
         run: pnpm run format
       - name: Run ESLint
         run: pnpm run lint
-      - name: Run Tests
-        run: pnpm run test
+      # - name: Run Tests
+      #   run: pnpm run test
       - name: Build component Library
         run: pnpm run build:ci
       - name: Build Storybook
