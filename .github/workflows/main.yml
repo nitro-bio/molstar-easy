@@ -1,0 +1,34 @@
+name: Library + Storybook Build
+
+# on all branches, on push and PR
+on:
+  push:
+    branches:
+      - "*"
+  pull_request:
+    branches:
+      - "*"
+
+jobs:
+  frontend_compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18.x
+      - name: Install deps
+        run: npm i -g pnpm && pnpm i
+      - name: Run Prettier
+        run: pnpm run format
+      - name: Run ESLint
+        run: pnpm run lint
+      - name: Run Tests
+        run: pnpm run test
+      - name: Build component Library
+        run: pnpm run build:ci
+      - name: Build Storybook
+        run: pnpm run build-storybook
+        env:
+          NODE_OPTIONS: "--max_old_space_size=4096" # to get around JavaScript heap out of memory error

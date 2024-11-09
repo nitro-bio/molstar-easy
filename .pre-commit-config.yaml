@@ -1,0 +1,14 @@
+ repos:
+  # Typescript
+  - repo: local
+    hooks:
+      - id: eslint
+        stages: [commit]
+        name: eslint
+        entry: bash -c "pnpm lint"
+        language: node
+      - id: prettier
+        stages: [commit]
+        name: prettier
+        entry: bash -c "pnpm format:fix"
+        language: node
