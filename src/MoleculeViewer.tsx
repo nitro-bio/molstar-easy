@@ -18,22 +18,24 @@ interface MoleculeHighlight {
   end: number;
   hidden?: true;
 }
+interface MoleculePayload {
+  pdbString: string;
+  highlights?: MoleculeHighlight[];
+  structureHexColor?: string;
+}
+
 const DEFAULT_STRUCTURE_COLOR = "#94a3b8";
 const DEFAULT_BACKGROUND_COLOR = "#f4f4f4";
 
 const MoleculeViewer = memo(
   ({
-    pdbStr,
+    moleculePayloads,
     className,
-    highlights,
     backgroundHexColor,
-    structureHexColor,
   }: {
-    pdbStr: string;
+    moleculePayloads: (MoleculePayload | null)[];
     className?: string;
-    highlights?: MoleculeHighlight[];
     backgroundHexColor?: string;
-    structureHexColor?: string;
   }) => {
     const parentRef = useRef(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -83,38 +85,28 @@ const MoleculeViewer = memo(
     );
 
     useEffect(
-      function onPdbChange() {
+      function onMoleculePayloadsChange() {
         const loadStructure = async ({
-          pdbUrl,
-          pdbStr,
+          pdbString,
+          structureHexColor,
           plugin,
         }: {
-          pdbUrl?: string;
-          pdbStr?: string;
+          pdbString: string;
+          structureHexColor?: string;
           plugin: PluginContext | null;
         }) => {
           if (plugin) {
-            let trajectory;
-            if (pdbUrl) {
-              const data = await plugin.builders.data.download({ url: pdbUrl });
-              trajectory = await plugin.builders.structure.parseTrajectory(
-                data,
-                "pdb",
-              );
-            } else if (pdbStr) {
-              const data = await plugin.builders.data.rawData({
-                data: pdbStr,
-                label: void 0, // optional label
-              });
-              trajectory = await plugin.builders.structure.parseTrajectory(
-                data,
-                "pdb",
-              );
-            }
+            const data = await plugin.builders.data.rawData({
+              data: pdbString,
+              label: void 0,
+            });
+            const trajectory = await plugin.builders.structure.parseTrajectory(
+              data,
+              "pdb",
+            );
 
             if (trajectory) {
               const params = {
-                // Corrected parameter name
                 representationPresetParams: {
                   theme: {
                     globalName: "uniform",
@@ -135,16 +127,35 @@ const MoleculeViewer = memo(
             }
           }
         };
-        const _onPdbChange = async () => {
+
+        const _onMoleculePayloadsChange = async () => {
+          // pause the viewer
+          plugin.current!.canvas3d?.pause();
           // reset the structure
           plugin.current!.clear();
-          console.log("change");
-          await loadStructure({ pdbStr, plugin: plugin.current });
-          highlights?.forEach((highlight) => colorResidues(highlight));
+
+          // Load all structures
+          for (const payload of moleculePayloads) {
+            if (!payload) {
+              continue;
+            }
+            await loadStructure({
+              pdbString: payload.pdbString,
+              structureHexColor: payload.structureHexColor,
+              plugin: plugin.current,
+            });
+
+            // Apply highlights for each molecule
+            payload.highlights?.forEach((highlight) =>
+              colorResidues(highlight),
+            );
+          }
+          // reset camera
+          plugin.current!.canvas3d?.requestCameraReset();
         };
-        _onPdbChange();
+        _onMoleculePayloadsChange();
       },
-      [pdbStr, highlights, structureHexColor],
+      [moleculePayloads],
     );
 
     const colorResidues = ({
@@ -204,18 +215,12 @@ const MoleculeViewer = memo(
       });
     };
 
-    const width = "100%";
-    const height = "100%";
-
     return (
-      <div
-        ref={parentRef}
-        style={{ position: "relative", width, height }}
-        className={cn("relative h-full w-full ", className)}
-      >
+      <div ref={parentRef} className={cn("", className)}>
         <canvas
           ref={canvasRef}
-          className="absolute bottom-0 left-0 right-0 top-0 "
+          className=""
+          style={{ width: "100%", height: "100%" }}
         />
       </div>
     );
@@ -225,4 +230,4 @@ const MoleculeViewer = memo(
 MoleculeViewer.displayName = "MoleculeViewer";
 
 export { MoleculeViewer };
-export type { MoleculeHighlight };
+export type { MoleculeHighlight, MoleculePayload };

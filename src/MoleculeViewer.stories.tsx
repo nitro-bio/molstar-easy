@@ -1,58 +1,25 @@
-import { cn } from "@utils/stringUtils";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { MoleculeViewer, MoleculeHighlight } from "./MoleculeViewer";
+import { useDeferredValue, useState } from "react";
+import { MoleculePayloadGenerator } from "./MoleculePayloadGenerator";
+import { MoleculePayload, MoleculeViewer } from "./MoleculeViewer";
 
 export default {
   title: "MoleculeViewer",
+  component: MoleculeViewer,
 };
 
-export const WithHiglights = () => {
-  const highlights = [
-    {
-      // red
-      label: { text: "Red Annotation", hexColor: "#881337", scale: 1 },
-      start: 14,
-      end: 30,
-    },
-    {
-      // green
-      label: { text: "Green Annotation", hexColor: "#16a34a", scale: 0.5 },
-      start: 0,
-      end: 10,
-    },
-  ];
-  const [currentHighlightType, setCurrentHighlightType] = useState<
-    "red" | "green"
-  >("red");
-  const [backgroundColor, setBackgroundColor] = useState("#f4f4f4");
-  const [structureColor, setStructureColor] = useState("#94a3b8");
+export const Demo = () => {
+  const [backgroundColor, setBackgroundColor] = useState("#f1f1f1");
   const deferredBackgroundColor = useDeferredValue(backgroundColor);
-  const deferredStructureColor = useDeferredValue(structureColor);
-  const currentHighlights: [MoleculeHighlight] = useMemo(
-    () => (currentHighlightType === "red" ? [highlights[0]] : [highlights[1]]),
-    [currentHighlightType],
-  );
-  const pdbUrl = "https://files.rcsb.org/download/1CRN.pdb";
-  const [pdbStr, setPdbStr] = useState<string | null>(null);
-  useEffect(
-    function fetchPDB() {
-      fetch(pdbUrl)
-        .then((res) => res.text())
-        .then((pdbStr) => setPdbStr(pdbStr));
-    },
-    [pdbUrl],
-  );
-
+  const [payloads, setPayloads] = useState<(MoleculePayload | null)[]>([null]);
+  const setPayload = (index: number, payload: MoleculePayload | null) => {
+    setPayloads((prev) => {
+      const next = prev ? [...prev] : [];
+      next[index] = payload;
+      return next;
+    });
+  };
   return (
     <div className="flex max-w-3xl flex-col gap-4">
-      <button
-        className={cn("w-fit rounded-md bg-zinc-400 px-4 py-2 text-white")}
-        onClick={() =>
-          setCurrentHighlightType((prev) => (prev === "red" ? "green" : "red"))
-        }
-      >
-        {currentHighlightType === "red" ? "Show Green" : "Show Red"}
-      </button>
       <div className="flex gap-4">
         <label>
           Background Color:
@@ -62,25 +29,31 @@ export const WithHiglights = () => {
             onChange={(e) => setBackgroundColor(e.target.value)}
           />
         </label>
-        <label>
-          Structure Color:
-          <input
-            type="color"
-            value={structureColor}
-            onChange={(e) => setStructureColor(e.target.value)}
-          />
-        </label>
       </div>
-
-      {pdbStr && (
+      <div className="flex gap-4">
+        {payloads?.map((payload, index) => (
+          <MoleculePayloadGenerator
+            key={index}
+            payload={payload}
+            setPayload={(payload) => setPayload(index, payload)}
+          />
+        ))}
+        <button
+          className="rounded bg-blue-500 px-4 py-2 text-white"
+          onClick={() =>
+            setPayloads((prev) => (prev ? [...prev, null] : [null]))
+          }
+        >
+          Add Molecule
+        </button>
+      </div>
+      <div className="">
         <MoleculeViewer
-          className="min-h-80 overflow-hidden rounded-xl border-2 border-dashed border-zinc-500"
+          className=""
           backgroundHexColor={deferredBackgroundColor}
-          structureHexColor={deferredStructureColor}
-          pdbStr={pdbStr}
-          highlights={currentHighlights}
+          moleculePayloads={payloads}
         />
-      )}
+      </div>{" "}
     </div>
   );
 };
