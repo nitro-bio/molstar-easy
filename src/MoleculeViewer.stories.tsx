@@ -1,6 +1,7 @@
 import { useDeferredValue, useState } from "react";
 import { MoleculePayloadGenerator } from "./MoleculePayloadGenerator";
 import { MoleculePayload, MoleculeViewer } from "./MoleculeViewer";
+import { cn } from "@utils/stringUtils";
 
 export default {
   title: "MoleculeViewer",
@@ -20,9 +21,9 @@ export const Demo = () => {
   };
   return (
     <div className="flex max-w-3xl flex-col gap-4">
-      <div className="flex gap-4">
-        <label>
-          Background Color:
+      <div className="grid w-fit grid-cols-2 items-center justify-center gap-2 rounded-xl border px-4 py-2">
+        <label className="flex flex-col text-sm">
+          Background Color
           <input
             type="color"
             value={backgroundColor}
@@ -30,7 +31,7 @@ export const Demo = () => {
           />
         </label>
       </div>
-      <div className="flex gap-4">
+      <div className="grid grid-cols-2 gap-4">
         {payloads?.map((payload, index) => (
           <MoleculePayloadGenerator
             key={index}
@@ -39,12 +40,15 @@ export const Demo = () => {
           />
         ))}
         <button
-          className="rounded bg-blue-500 px-4 py-2 text-white"
+          className={cn(
+            "flex items-center justify-center rounded border border-dashed border-zinc-600 px-4 py-2 font-black text-zinc-600",
+            payloads.length % 2 == 0 ? "h-fit" : "w-fit",
+          )}
           onClick={() =>
             setPayloads((prev) => (prev ? [...prev, null] : [null]))
           }
         >
-          Add Molecule
+          +
         </button>
       </div>
       <div className="">

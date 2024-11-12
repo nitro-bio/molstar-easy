@@ -4,6 +4,7 @@ import { StructureSelection } from "molstar/lib/mol-model/structure";
 import { setStructureOverpaint } from "molstar/lib/mol-plugin-state/helpers/structure-overpaint";
 import { PluginContext } from "molstar/lib/mol-plugin/context";
 import { DefaultPluginSpec } from "molstar/lib/mol-plugin/spec";
+import { MolScriptBuilder } from "molstar/lib/mol-script/language/builder";
 import { Script } from "molstar/lib/mol-script/script";
 import { Color } from "molstar/lib/mol-util/color";
 import { memo, useEffect, useRef } from "react";
@@ -119,101 +120,79 @@ const MoleculeViewer = memo(
                 },
               };
 
-              await plugin.builders.structure.hierarchy.applyPreset(
-                trajectory,
-                "default",
-                params,
-              );
+              const struct =
+                await plugin.builders.structure.hierarchy.applyPreset(
+                  trajectory,
+                  "default",
+                  params,
+                );
+              return struct;
             }
           }
         };
 
         const _onMoleculePayloadsChange = async () => {
-          // pause the viewer
           plugin.current!.canvas3d?.pause();
-          // reset the structure
           plugin.current!.clear();
-
-          // Load all structures
-          for (const payload of moleculePayloads) {
+          moleculePayloads.forEach(async (payload, idx) => {
             if (!payload) {
-              continue;
+              return;
             }
-            await loadStructure({
+            const struct = await loadStructure({
               pdbString: payload.pdbString,
               structureHexColor: payload.structureHexColor,
               plugin: plugin.current,
             });
+            if (!struct?.structure.data) {
+              return;
+            }
 
-            // Apply highlights for each molecule
-            payload.highlights?.forEach((highlight) =>
-              colorResidues(highlight),
-            );
-          }
-          // reset camera
+            payload.highlights?.forEach((highlight) => {
+              const { start, end, label } = highlight;
+              const selection = Script.getStructureSelection(
+                (Q) =>
+                  Q.struct.generator.atomGroups({
+                    "residue-test": Q.core.rel.inRange([
+                      MolScriptBuilder.struct.atomProperty.macromolecular.label_seq_id(),
+                      start,
+                      end,
+                    ]),
+                    "group-by":
+                      Q.struct.atomProperty.macromolecular.residueKey(),
+                  }),
+                struct.structure.data!,
+              );
+              console.log(selection);
+              const lociGetter = async () =>
+                StructureSelection.toLociWithSourceUnits(selection);
+
+              const components =
+                plugin.current!.managers.structure.hierarchy.current.structures[
+                  idx
+                ].components;
+
+              setStructureOverpaint(
+                plugin.current!,
+                components,
+                Color.fromHexStyle(label.hexColor),
+                lociGetter,
+              );
+              const loci = StructureSelection.toLociWithSourceUnits(selection);
+              plugin.current!.managers.structure.measurement.addLabel(loci, {
+                labelParams: {
+                  customText: label.text,
+                  textColor: Color.fromHexStyle(label.hexColor),
+                  sizeFactor: label.scale ?? 1.0,
+                },
+              });
+            });
+          });
           plugin.current!.canvas3d?.requestCameraReset();
         };
         _onMoleculePayloadsChange();
       },
       [moleculePayloads],
     );
-
-    const colorResidues = ({
-      start,
-      end,
-      label,
-      hidden,
-    }: MoleculeHighlight) => {
-      if (hidden) {
-        return;
-      }
-      const range = Array.from(
-        //creates an array of all numbers in [start, end]
-        { length: end - start },
-        (_, idx) => idx + start,
-      );
-
-      const data =
-        plugin.current!.managers.structure.hierarchy.current.structures[0]?.cell
-          .obj?.data;
-      if (!data) {
-        console.debug("Problem with data, try to reload viewer.");
-        return;
-      }
-
-      const selection = Script.getStructureSelection(
-        (Q) =>
-          Q.struct.generator.atomGroups({
-            "residue-test": Q.core.set.has([
-              Q.set(...range),
-              Q.ammp("auth_seq_id"),
-            ]),
-            "group-by": Q.struct.atomProperty.macromolecular.residueKey(),
-          }),
-        data,
-      );
-      const lociGetter = async () =>
-        StructureSelection.toLociWithSourceUnits(selection);
-
-      const components =
-        plugin.current!.managers.structure.hierarchy.current.structures[0]
-          .components;
-
-      setStructureOverpaint(
-        plugin.current!,
-        components,
-        Color.fromHexStyle(label.hexColor),
-        lociGetter,
-      );
-      const loci = StructureSelection.toLociWithSourceUnits(selection);
-      plugin.current!.managers.structure.measurement.addLabel(loci, {
-        labelParams: {
-          customText: label.text,
-          textColor: Color.fromHexStyle(label.hexColor),
-          sizeFactor: label.scale ?? 1.0,
-        },
-      });
-    };
 
     return (
       <div ref={parentRef} className={cn("", className)}>
