@@ -4,6 +4,8 @@
 
 [Documentation](https://docs.nitro.bio)
 
+`molstar-easy` makes it simple to get started using molstar in react projects. It provides a bare-bones api that allows styling of the viewer and the loaded protein structures, as well as annotating specific regions of the protein via highlighting.
+
 ## Quickstart
 
 ```sh
@@ -31,7 +33,17 @@ export const Demo = () => {
 
   return (
     <div>
-      {pdbStr && <MoleculeViewer pdbStr={pdbStr} highlights={[highlight]} />}
+      {pdbStr && (
+        <MoleculeViewer
+          moleculePayloads={[
+            {
+              pdbString: pdbStr,
+              highlights: [highlight],
+              structureHexColor: "#7279df",
+            },
+          ]}
+        />
+      )}
     </div>
   );
 };
@@ -81,37 +93,3 @@ pnpm dev
 ```
 
 This will start the Storybook development server.
-
-## Notable Dependencies
-
-### Frameworks
-
-- React
-
-### Runtime Utilities
-
-- @tanstack/react-query (Data fetching and state management)
-- Zod (Schema validation)
-- @tanstack/react-table (Table component library)
-- React Hook Form (Form handling)
-
-### Buildtime Utilities
-
-- Vite (Build tool and development server)
-- TypeScript (Static typing)
-- ESLint and Prettier (Code linting and formatting)
-- Vitest (Testing framework)
-- Storybook (UI component development and documentation)
-
-### Styling
-
-- Tailwind CSS (Utility-first CSS framework)
-- DaisyUI (Tailwind CSS component library)
-- Radix UI (Accessible UI components)
-- Headless UI (Unstyled, accessible UI components)
-- Hero Icons (SVG icon set)
-
-### Data Viz
-
-- MolStar (Molecular visualization)
-- RDKit (Cheminformatics and machine learning toolkit)
