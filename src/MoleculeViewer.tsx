@@ -2,6 +2,14 @@ import { cn } from "@utils/stringUtils";
 import "molstar/build/viewer/molstar.css";
 import { StructureSelection } from "molstar/lib/mol-model/structure";
 import { setStructureOverpaint } from "molstar/lib/mol-plugin-state/helpers/structure-overpaint";
+import { Download } from "molstar/lib/mol-plugin-state/transforms/data";
+import {
+  ModelFromTrajectory,
+  StructureComponent,
+  StructureFromModel,
+  TrajectoryFromPDB,
+} from "molstar/lib/mol-plugin-state/transforms/model";
+import { StructureRepresentation3D } from "molstar/lib/mol-plugin-state/transforms/representation";
 import { PluginContext } from "molstar/lib/mol-plugin/context";
 import { DefaultPluginSpec } from "molstar/lib/mol-plugin/spec";
 import { MolScriptBuilder } from "molstar/lib/mol-script/language/builder";
@@ -97,37 +105,33 @@ const MoleculeViewer = memo(
           plugin: PluginContext | null;
         }) => {
           if (plugin) {
-            const data = await plugin.builders.data.rawData({
-              data: pdbString,
-              label: void 0,
-            });
-            const trajectory = await plugin.builders.structure.parseTrajectory(
-              data,
-              "pdb",
-            );
+            const blob = new Blob([pdbString], { type: "text/plain" });
+            const url = URL.createObjectURL(blob);
 
-            if (trajectory) {
-              const params = {
-                representationPresetParams: {
-                  theme: {
-                    globalName: "uniform",
-                    globalColorParams: {
-                      value: Color.fromHexStyle(
-                        structureHexColor ?? DEFAULT_STRUCTURE_COLOR,
-                      ),
-                    },
+            const structure = await plugin
+              .build()
+              .toRoot()
+              .apply(Download, { url })
+              .apply(TrajectoryFromPDB)
+              .apply(ModelFromTrajectory)
+              .apply(StructureFromModel, {
+                type: { name: "assembly", params: {} },
+              })
+              .apply(StructureComponent, {
+                type: { name: "static", params: "polymer" },
+              })
+              .apply(StructureRepresentation3D, {
+                colorTheme: {
+                  name: "uniform",
+                  params: {
+                    value: Color.fromHexStyle(
+                      structureHexColor ?? DEFAULT_STRUCTURE_COLOR,
+                    ),
                   },
                 },
-              };
-
-              const struct =
-                await plugin.builders.structure.hierarchy.applyPreset(
-                  trajectory,
-                  "default",
-                  params,
-                );
-              return struct;
-            }
+              })
+              .commit();
+            return structure;
           }
         };
 
@@ -143,7 +147,7 @@ const MoleculeViewer = memo(
               structureHexColor: payload.structureHexColor,
               plugin: plugin.current,
             });
-            if (!struct?.structure.data) {
+            if (!struct?.data) {
               return;
             }
 
@@ -160,7 +164,7 @@ const MoleculeViewer = memo(
                     "group-by":
                       Q.struct.atomProperty.macromolecular.residueKey(),
                   }),
-                struct.structure.data!,
+                struct.data!,
               );
               console.log(selection);
               const lociGetter = async () =>
