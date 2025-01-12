@@ -37,7 +37,9 @@ export const MoleculePayloadGenerator = ({
       } else {
         setPayload({
           pdbString,
-          structureHexColor: structureColor,
+          indexToColor: new Map(
+            Array.from({ length: 1000 }, (_, i) => [i, structureColor]),
+          ),
           highlights: highlight ? [highlight] : undefined,
         });
       }

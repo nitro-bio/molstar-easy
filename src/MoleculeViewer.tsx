@@ -1,4 +1,5 @@
 import { cn } from "@utils/stringUtils";
+import { CustomColorThemeProvider } from "@utils/themeUtils";
 import "molstar/build/viewer/molstar.css";
 import { StructureSelection } from "molstar/lib/mol-model/structure";
 import { setStructureOverpaint } from "molstar/lib/mol-plugin-state/helpers/structure-overpaint";
@@ -30,7 +31,7 @@ interface MoleculeHighlight {
 interface MoleculePayload {
   pdbString: string;
   highlights?: MoleculeHighlight[];
-  structureHexColor?: string;
+  indexToColor?: Map<number, string>;
 }
 
 const DEFAULT_STRUCTURE_COLOR = "#94a3b8";
@@ -55,7 +56,6 @@ const MoleculeViewer = memo(
         plugin.current = new PluginContext(DefaultPluginSpec());
         if (canvasRef.current && parentRef.current) {
           plugin.current.initViewer(canvasRef.current, parentRef.current);
-
           /* remove axes and set background transparent */
           plugin.current.canvas3d?.setProps({
             renderer: {
@@ -97,17 +97,40 @@ const MoleculeViewer = memo(
       function onMoleculePayloadsChange() {
         const loadStructure = async ({
           pdbString,
-          structureHexColor,
+          indexToColor,
           plugin,
         }: {
           pdbString: string;
-          structureHexColor?: string;
+          indexToColor: MoleculePayload["indexToColor"];
           plugin: PluginContext | null;
         }) => {
           if (plugin) {
             const blob = new Blob([pdbString], { type: "text/plain" });
             const url = URL.createObjectURL(blob);
+            let colorTheme = {
+              name: "uniform",
+              params: {
+                value: Color.fromHexStyle(DEFAULT_STRUCTURE_COLOR),
+              },
+            };
+            if (indexToColor) {
+              const registry =
+                plugin.representation.structure.themes.colorThemeRegistry;
+              const provider = CustomColorThemeProvider({
+                indexToColor: indexToColor,
+                defaultColor: Color.fromHexStyle(DEFAULT_STRUCTURE_COLOR),
+              });
+              if (registry.has(provider)) {
+                registry.remove(provider);
+              }
+              // register custom theme
+              registry.add(provider);
 
+              colorTheme = {
+                name: "nitro-custom-theme",
+                params: {},
+              };
+            }
             const structure = await plugin
               .build()
               .toRoot()
@@ -121,14 +144,7 @@ const MoleculeViewer = memo(
                 type: { name: "static", params: "polymer" },
               })
               .apply(StructureRepresentation3D, {
-                colorTheme: {
-                  name: "uniform",
-                  params: {
-                    value: Color.fromHexStyle(
-                      structureHexColor ?? DEFAULT_STRUCTURE_COLOR,
-                    ),
-                  },
-                },
+                colorTheme,
               })
               .commit();
             return structure;
@@ -144,7 +160,7 @@ const MoleculeViewer = memo(
             }
             const struct = await loadStructure({
               pdbString: payload.pdbString,
-              structureHexColor: payload.structureHexColor,
+              indexToColor: payload.indexToColor,
               plugin: plugin.current,
             });
             if (!struct?.data) {
@@ -153,6 +169,9 @@ const MoleculeViewer = memo(
 
             payload.highlights?.forEach((highlight) => {
               const { start, end, label } = highlight;
+              const structure =
+                plugin.current!.managers.structure.hierarchy.current
+                  .structures[0].cell.obj?.data;
               const selection = Script.getStructureSelection(
                 (Q) =>
                   Q.struct.generator.atomGroups({
@@ -164,9 +183,8 @@ const MoleculeViewer = memo(
                     "group-by":
                       Q.struct.atomProperty.macromolecular.residueKey(),
                   }),
-                struct.data!,
+                structure!,
               );
-              console.log(selection);
               const lociGetter = async () =>
                 StructureSelection.toLociWithSourceUnits(selection);
 
