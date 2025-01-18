@@ -1,4 +1,5 @@
-import { ColorTheme } from "molstar/lib/mol-theme/color";
+import { StructureElement } from "molstar/lib/mol-model/structure";
+import { ColorTheme, LocationColor } from "molstar/lib/mol-theme/color";
 import {
   EntityIdColorThemeParams,
   getEntityIdColorThemeParams,
@@ -14,11 +15,18 @@ export function CustomColorTheme(
   indexToColor: Map<number, string>,
   defaultColor: Color,
 ): ColorTheme<EntityIdColorThemeParams> {
-  const color = (location: any): Color => {
-    const index = location.element;
-    return indexToColor.has(index)
-      ? Color.fromHexStyle(indexToColor.get(index)!)
-      : defaultColor;
+  // TODO: check this
+  const color: LocationColor = (location) => {
+    if (StructureElement.Location.is(location)) {
+      const unsafeUnit = location.unit as unknown as { residueIndex: number[] };
+      const residueIndex = unsafeUnit.residueIndex[location.element] ?? -1;
+      return indexToColor.has(residueIndex)
+        ? Color.fromHexStyle(indexToColor.get(residueIndex)!)
+        : defaultColor;
+    } else {
+      console.log("location is not a StructureElement.Location");
+      return defaultColor;
+    }
   };
   return {
     granularity: "group",

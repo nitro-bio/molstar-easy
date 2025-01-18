@@ -17,6 +17,7 @@ import { MolScriptBuilder } from "molstar/lib/mol-script/language/builder";
 import { Script } from "molstar/lib/mol-script/script";
 import { Color } from "molstar/lib/mol-util/color";
 import { memo, useEffect, useRef } from "react";
+import { ErrorBoundary } from "react-error-boundary";
 
 interface MoleculeHighlight {
   label: {
@@ -55,7 +56,11 @@ const MoleculeViewer = memo(
       (async () => {
         plugin.current = new PluginContext(DefaultPluginSpec());
         if (canvasRef.current && parentRef.current) {
-          plugin.current.initViewer(canvasRef.current, parentRef.current);
+          try {
+            plugin.current.initViewer(canvasRef.current, parentRef.current);
+          } catch (e) {
+            console.error(e);
+          }
           /* remove axes and set background transparent */
           plugin.current.canvas3d?.setProps({
             renderer: {
@@ -128,7 +133,9 @@ const MoleculeViewer = memo(
 
               colorTheme = {
                 name: "nitro-custom-theme",
-                params: {},
+                params: {
+                  value: Color.fromHexStyle(DEFAULT_STRUCTURE_COLOR),
+                },
               };
             }
             const structure = await plugin
@@ -151,7 +158,7 @@ const MoleculeViewer = memo(
           }
         };
 
-        const _onMoleculePayloadsChange = async () => {
+        const _onMoleculePayloadsChange = () => {
           plugin.current!.canvas3d?.pause();
           plugin.current!.clear();
           moleculePayloads.forEach(async (payload, idx) => {
@@ -171,7 +178,7 @@ const MoleculeViewer = memo(
               const { start, end, label } = highlight;
               const structure =
                 plugin.current!.managers.structure.hierarchy.current
-                  .structures[0].cell.obj?.data;
+                  .structures[0]!.cell.obj?.data;
               const selection = Script.getStructureSelection(
                 (Q) =>
                   Q.struct.generator.atomGroups({
@@ -191,7 +198,7 @@ const MoleculeViewer = memo(
               const components =
                 plugin.current!.managers.structure.hierarchy.current.structures[
                   idx
-                ].components;
+                ]!.components;
 
               setStructureOverpaint(
                 plugin.current!,
@@ -217,18 +224,23 @@ const MoleculeViewer = memo(
     );
 
     return (
-      <div ref={parentRef} className={cn("", className)}>
-        <canvas
-          ref={canvasRef}
-          className=""
-          style={{ width: "100%", height: "100%" }}
-        />
-      </div>
+      <ErrorBoundary
+        FallbackComponent={() => <>Something went wrong</>}
+        onError={(error: unknown) => {
+          console.error(error);
+        }}
+      >
+        <div ref={parentRef} className={cn("", className)}>
+          <canvas
+            ref={canvasRef}
+            className=""
+            style={{ width: "100%", height: "100%" }}
+          />
+        </div>
+      </ErrorBoundary>
     );
   },
 );
-
 MoleculeViewer.displayName = "MoleculeViewer";
-
-export { MoleculeViewer };
 export type { MoleculeHighlight, MoleculePayload };
+export { MoleculeViewer };
