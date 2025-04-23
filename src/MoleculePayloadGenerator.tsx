@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { MoleculeHighlight, MoleculePayload } from "./MoleculeViewer";
+import {
+  MoleculeHighlight,
+  MoleculePayload,
+  MoleculeStyle,
+} from "./MoleculeViewer";
 
 export const MoleculePayloadGenerator = ({
   setPayload,
@@ -10,6 +14,7 @@ export const MoleculePayloadGenerator = ({
   const [pdbId, setPdbId] = useState("1CRN");
   const [pdbString, setPdbString] = useState<string | null>(null);
   const [structureColor, setStructureColor] = useState("#94a3b8");
+  const [styleType, setStyleType] = useState<MoleculeStyle>("surface");
   const [highlight, setHighlight] = useState<MoleculeHighlight>({
     start: 0,
     end: 10,
@@ -41,10 +46,13 @@ export const MoleculePayloadGenerator = ({
             Array.from({ length: 1000 }, (_, i) => [i, structureColor]),
           ),
           highlights: highlight ? [highlight] : undefined,
+          style: {
+            type: styleType,
+          },
         });
       }
     },
-    [pdbString, structureColor, highlight],
+    [pdbString, structureColor, highlight, styleType],
   );
 
   return (
@@ -66,6 +74,20 @@ export const MoleculePayloadGenerator = ({
           value={structureColor}
           onChange={(e) => setStructureColor(e.target.value)}
         />
+      </label>
+      <label className="flex flex-col text-xs">
+        Style Type:
+        <select
+          className="rounded-md text-xs"
+          value={styleType}
+          onChange={(e) => setStyleType(e.target.value as MoleculeStyle)}
+        >
+          <option value="cartoon">Cartoon</option>
+          <option value="ball-and-stick">Ball & Stick</option>
+          <option value="spacefill">Spacefill</option>
+          <option value="surface">Surface</option>
+          <option value="ribbon">Ribbon</option>
+        </select>
       </label>
       <label className="col-span-2 mt-2 border-t pt-4 text-sm text-zinc-600">
         Highlight

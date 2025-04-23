@@ -19,6 +19,16 @@ import { Color } from "molstar/lib/mol-util/color";
 import { memo, useEffect, useRef } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Types                                                                     */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+export type MoleculeStyle =
+  | "spacefill"
+  | "ball-and-stick"
+  | "surface"
+  | "ribbon";
+
 interface MoleculeHighlight {
   label: {
     text: string;
@@ -29,14 +39,43 @@ interface MoleculeHighlight {
   end: number;
   hidden?: true;
 }
+
 interface MoleculePayload {
   pdbString: string;
   highlights?: MoleculeHighlight[];
   indexToColor?: Map<number, string>;
+  style?: {
+    type: MoleculeStyle;
+    params?: Record<string, unknown>;
+  };
 }
+
+/* ────────────────────────────────────────────────────────────────────────── */
+
+/* …imports & types stay the same… */
 
 const DEFAULT_STRUCTURE_COLOR = "#94a3b8";
 const DEFAULT_BACKGROUND_COLOR = "#f4f4f4";
+
+/** Map our friendly names → Mol* representation names + sensible defaults */
+const repLookup = (style?: MoleculePayload["style"]) => {
+  if (!style) return { name: "ribbon", params: {} };
+
+  switch (style.type) {
+    case "surface":
+      return {
+        name: "molecular-surface",
+        params: { resolution: 0.5, probeRadius: 1.4, ...style.params },
+      };
+    case "ribbon":
+      return {
+        name: "ribbon",
+        params: { sizeFactor: 3, ...style.params }, // beef up width a bit
+      };
+    default:
+      return { name: style.type as MoleculeStyle, params: style.params || {} };
+  }
+};
 
 const MoleculeViewer = memo(
   ({
@@ -48,199 +87,161 @@ const MoleculeViewer = memo(
     className?: string;
     backgroundHexColor?: string;
   }) => {
-    const parentRef = useRef(null);
+    const parentRef = useRef<HTMLDivElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const plugin = useRef<PluginContext | null>(null);
 
-    useEffect(function onInit() {
+    /* ───────────────── init once ───────────────── */
+    useEffect(() => {
       (async () => {
         plugin.current = new PluginContext(DefaultPluginSpec());
         if (canvasRef.current && parentRef.current) {
-          try {
-            plugin.current.initViewer(canvasRef.current, parentRef.current);
-          } catch (e) {
-            console.error(e);
-          }
-          /* remove axes and set background transparent */
+          plugin.current.initViewer(canvasRef.current, parentRef.current);
           plugin.current.canvas3d?.setProps({
             renderer: {
               backgroundColor: Color.fromHexStyle(
                 backgroundHexColor ?? DEFAULT_BACKGROUND_COLOR,
               ),
             },
-            camera: {
-              helper: {
-                axes: {
-                  name: "off",
-                  params: {},
-                },
-              },
-            },
+            camera: { helper: { axes: { name: "off", params: {} } } },
           });
         }
-        await plugin.current.init();
+        await plugin.current?.init();
       })();
       return () => {
         plugin.current = null;
       };
     }, []);
 
-    useEffect(
-      function onBackgroundChange() {
-        if (plugin.current && backgroundHexColor) {
-          plugin.current.canvas3d?.setProps({
-            renderer: {
-              backgroundColor: Color.fromHexStyle(backgroundHexColor),
-            },
+    /* ───────────────── bg colour updates ───────────────── */
+    useEffect(() => {
+      if (plugin.current && backgroundHexColor) {
+        plugin.current.canvas3d?.setProps({
+          renderer: {
+            backgroundColor: Color.fromHexStyle(backgroundHexColor),
+          },
+        });
+      }
+    }, [backgroundHexColor]);
+
+    /* ───────────────── load / reload structures ───────────────── */
+    useEffect(() => {
+      const buildStructure = async (payload: MoleculePayload) => {
+        if (!plugin.current) return;
+
+        const pdbUrl = URL.createObjectURL(
+          new Blob([payload.pdbString], { type: "text/plain" }),
+        );
+
+        /* Colour theme — unchanged from last version */
+        let colorTheme = {
+          name: "uniform",
+          params: { value: Color.fromHexStyle(DEFAULT_STRUCTURE_COLOR) },
+        };
+        if (payload.indexToColor) {
+          const reg =
+            plugin.current.representation.structure.themes.colorThemeRegistry;
+          const provider = CustomColorThemeProvider({
+            indexToColor: payload.indexToColor,
+            defaultColor: Color.fromHexStyle(DEFAULT_STRUCTURE_COLOR),
+          });
+          if (reg.has(provider)) reg.remove(provider);
+          reg.add(provider);
+          colorTheme = {
+            name: "nitro-custom-theme",
+            params: { value: Color.fromHexStyle(DEFAULT_STRUCTURE_COLOR) },
+          };
+        }
+
+        /* <── the only line that really changed */
+        const repType = repLookup(payload.style);
+
+        return plugin.current
+          .build()
+          .toRoot()
+          .apply(Download, { url: pdbUrl })
+          .apply(TrajectoryFromPDB)
+          .apply(ModelFromTrajectory)
+          .apply(StructureFromModel, {
+            type: { name: "assembly", params: {} },
+          })
+          .apply(StructureComponent, {
+            type: { name: "static", params: "polymer" },
+          })
+          .apply(StructureRepresentation3D, { type: repType, colorTheme })
+          .commit();
+      };
+
+      const render = async () => {
+        if (!plugin.current) return;
+        plugin.current.canvas3d?.pause();
+        plugin.current.clear();
+
+        for (let idx = 0; idx < moleculePayloads.length; idx++) {
+          const payload = moleculePayloads[idx];
+          if (!payload) continue;
+          const struct = await buildStructure(payload);
+          if (!struct?.data) continue;
+
+          /* highlights unchanged … */
+          payload.highlights?.forEach((h) => {
+            const root =
+              plugin.current!.managers.structure.hierarchy.current
+                .structures[0]!.cell.obj!.data;
+            const sel = Script.getStructureSelection(
+              (Q) =>
+                Q.struct.generator.atomGroups({
+                  "residue-test": Q.core.rel.inRange([
+                    MolScriptBuilder.struct.atomProperty.macromolecular.label_seq_id(),
+                    h.start,
+                    h.end,
+                  ]),
+                  "group-by": Q.struct.atomProperty.macromolecular.residueKey(),
+                }),
+              root,
+            );
+            const comps =
+              plugin.current!.managers.structure.hierarchy.current.structures[
+                idx
+              ]!.components;
+            const loci = StructureSelection.toLociWithSourceUnits(sel);
+            setStructureOverpaint(
+              plugin.current!,
+              comps,
+              Color.fromHexStyle(h.label.hexColor),
+              async () => loci,
+            );
+            plugin.current!.managers.structure.measurement.addLabel(loci, {
+              labelParams: {
+                customText: h.label.text,
+                textColor: Color.fromHexStyle(h.label.hexColor),
+                sizeFactor: h.label.scale ?? 1,
+              },
+            });
           });
         }
-      },
-      [backgroundHexColor],
-    );
 
-    useEffect(
-      function onMoleculePayloadsChange() {
-        const loadStructure = async ({
-          pdbString,
-          indexToColor,
-          plugin,
-        }: {
-          pdbString: string;
-          indexToColor: MoleculePayload["indexToColor"];
-          plugin: PluginContext | null;
-        }) => {
-          if (plugin) {
-            const blob = new Blob([pdbString], { type: "text/plain" });
-            const url = URL.createObjectURL(blob);
-            let colorTheme = {
-              name: "uniform",
-              params: {
-                value: Color.fromHexStyle(DEFAULT_STRUCTURE_COLOR),
-              },
-            };
-            if (indexToColor) {
-              const registry =
-                plugin.representation.structure.themes.colorThemeRegistry;
-              const provider = CustomColorThemeProvider({
-                indexToColor: indexToColor,
-                defaultColor: Color.fromHexStyle(DEFAULT_STRUCTURE_COLOR),
-              });
-              if (registry.has(provider)) {
-                registry.remove(provider);
-              }
-              // register custom theme
-              registry.add(provider);
+        plugin.current.canvas3d?.requestCameraReset();
+        plugin.current.canvas3d?.resume();
+      };
 
-              colorTheme = {
-                name: "nitro-custom-theme",
-                params: {
-                  value: Color.fromHexStyle(DEFAULT_STRUCTURE_COLOR),
-                },
-              };
-            }
-            const structure = await plugin
-              .build()
-              .toRoot()
-              .apply(Download, { url })
-              .apply(TrajectoryFromPDB)
-              .apply(ModelFromTrajectory)
-              .apply(StructureFromModel, {
-                type: { name: "assembly", params: {} },
-              })
-              .apply(StructureComponent, {
-                type: { name: "static", params: "polymer" },
-              })
-              .apply(StructureRepresentation3D, {
-                colorTheme,
-              })
-              .commit();
-            return structure;
-          }
-        };
+      render();
+    }, [moleculePayloads]);
 
-        const _onMoleculePayloadsChange = () => {
-          plugin.current!.canvas3d?.pause();
-          plugin.current!.clear();
-          moleculePayloads.forEach(async (payload, idx) => {
-            if (!payload) {
-              return;
-            }
-            const struct = await loadStructure({
-              pdbString: payload.pdbString,
-              indexToColor: payload.indexToColor,
-              plugin: plugin.current,
-            });
-            if (!struct?.data) {
-              return;
-            }
-
-            payload.highlights?.forEach((highlight) => {
-              const { start, end, label } = highlight;
-              const structure =
-                plugin.current!.managers.structure.hierarchy.current
-                  .structures[0]!.cell.obj?.data;
-              const selection = Script.getStructureSelection(
-                (Q) =>
-                  Q.struct.generator.atomGroups({
-                    "residue-test": Q.core.rel.inRange([
-                      MolScriptBuilder.struct.atomProperty.macromolecular.label_seq_id(),
-                      start,
-                      end,
-                    ]),
-                    "group-by":
-                      Q.struct.atomProperty.macromolecular.residueKey(),
-                  }),
-                structure!,
-              );
-              const lociGetter = async () =>
-                StructureSelection.toLociWithSourceUnits(selection);
-
-              const components =
-                plugin.current!.managers.structure.hierarchy.current.structures[
-                  idx
-                ]!.components;
-
-              setStructureOverpaint(
-                plugin.current!,
-                components,
-                Color.fromHexStyle(label.hexColor),
-                lociGetter,
-              );
-              const loci = StructureSelection.toLociWithSourceUnits(selection);
-              plugin.current!.managers.structure.measurement.addLabel(loci, {
-                labelParams: {
-                  customText: label.text,
-                  textColor: Color.fromHexStyle(label.hexColor),
-                  sizeFactor: label.scale ?? 1.0,
-                },
-              });
-            });
-          });
-          plugin.current!.canvas3d?.requestCameraReset();
-        };
-        _onMoleculePayloadsChange();
-      },
-      [moleculePayloads],
-    );
-
+    /* ───────────────── render ───────────────── */
     return (
       <ErrorBoundary
         FallbackComponent={() => <>Something went wrong</>}
-        onError={(error: unknown) => {
-          console.error(error);
-        }}
+        onError={(e) => console.error(e)}
       >
         <div ref={parentRef} className={cn("", className)}>
-          <canvas
-            ref={canvasRef}
-            className=""
-            style={{ width: "100%", height: "100%" }}
-          />
+          <canvas ref={canvasRef} style={{ width: "100%", height: "100%" }} />
         </div>
       </ErrorBoundary>
     );
   },
 );
+
 MoleculeViewer.displayName = "MoleculeViewer";
 export type { MoleculeHighlight, MoleculePayload };
 export { MoleculeViewer };
