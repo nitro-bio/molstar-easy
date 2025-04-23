@@ -19,10 +19,6 @@ import { Color } from "molstar/lib/mol-util/color";
 import { memo, useEffect, useRef } from "react";
 import { ErrorBoundary } from "react-error-boundary";
 
-/* ────────────────────────────────────────────────────────────────────────── */
-/* Types                                                                     */
-/* ────────────────────────────────────────────────────────────────────────── */
-
 export type MoleculeStyle =
   | "spacefill"
   | "ball-and-stick"
@@ -50,43 +46,21 @@ interface MoleculePayload {
   };
 }
 
-/* ────────────────────────────────────────────────────────────────────────── */
-
-/* …imports & types stay the same… */
-
-const DEFAULT_STRUCTURE_COLOR = "#94a3b8";
-const DEFAULT_BACKGROUND_COLOR = "#f4f4f4";
-
-/** Map our friendly names → Mol* representation names + sensible defaults */
-const repLookup = (style?: MoleculePayload["style"]) => {
-  if (!style) return { name: "ribbon", params: {} };
-
-  switch (style.type) {
-    case "surface":
-      return {
-        name: "molecular-surface",
-        params: { resolution: 0.5, probeRadius: 1.4, ...style.params },
-      };
-    case "ribbon":
-      return {
-        name: "ribbon",
-        params: { sizeFactor: 3, ...style.params }, // beef up width a bit
-      };
-    default:
-      return { name: style.type as MoleculeStyle, params: style.params || {} };
-  }
-};
-
 const MoleculeViewer = memo(
   ({
     moleculePayloads,
     className,
     backgroundHexColor,
+    defaultStructureHexColor,
   }: {
     moleculePayloads: (MoleculePayload | null)[];
     className?: string;
     backgroundHexColor?: string;
+    defaultStructureHexColor?: string;
   }) => {
+    const DEFAULT_STRUCTURE_COLOR = defaultStructureHexColor ?? "#94a3b8";
+    const DEFAULT_BACKGROUND_COLOR = "#f4f4f4";
+
     const parentRef = useRef<HTMLDivElement | null>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const plugin = useRef<PluginContext | null>(null);
@@ -245,3 +219,23 @@ const MoleculeViewer = memo(
 MoleculeViewer.displayName = "MoleculeViewer";
 export type { MoleculeHighlight, MoleculePayload };
 export { MoleculeViewer };
+
+/** Map our friendly names → Mol* representation names + sensible defaults */
+const repLookup = (style?: MoleculePayload["style"]) => {
+  if (!style) return { name: "ribbon", params: {} };
+
+  switch (style.type) {
+    case "surface":
+      return {
+        name: "molecular-surface",
+        params: { resolution: 0.5, probeRadius: 1.4, ...style.params },
+      };
+    case "ribbon":
+      return {
+        name: "ribbon",
+        params: { sizeFactor: 3, ...style.params }, // beef up width a bit
+      };
+    default:
+      return { name: style.type as MoleculeStyle, params: style.params || {} };
+  }
+};
