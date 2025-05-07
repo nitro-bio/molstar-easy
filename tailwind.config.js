@@ -9,16 +9,6 @@ const noirColor = colors.zinc;
 module.exports = {
   darkMode: "selector",
   content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
-  safelist: [
-    /* For user-defined ariadne colors */
-    {
-      pattern: /bg-.+/,
-    },
-    {
-      pattern: /text-.+/,
-    },
-    "bg-teal-300",
-  ],
   theme: {
     extend: {
       colors: {
