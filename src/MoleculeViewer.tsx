@@ -3,12 +3,16 @@ import { CustomColorThemeProvider } from "@utils/themeUtils";
 import "molstar/build/viewer/molstar.css";
 import { StructureSelection } from "molstar/lib/mol-model/structure";
 import { setStructureOverpaint } from "molstar/lib/mol-plugin-state/helpers/structure-overpaint";
-import { Download } from "molstar/lib/mol-plugin-state/transforms/data";
+import {
+  Download,
+  ParseCif,
+} from "molstar/lib/mol-plugin-state/transforms/data";
 import {
   ModelFromTrajectory,
   StructureComponent,
   StructureFromModel,
   TrajectoryFromPDB,
+  TrajectoryFromMmCif,
 } from "molstar/lib/mol-plugin-state/transforms/model";
 import { StructureRepresentation3D } from "molstar/lib/mol-plugin-state/transforms/representation";
 import { PluginContext } from "molstar/lib/mol-plugin/context";
@@ -37,7 +41,12 @@ interface MoleculeHighlight {
 }
 
 interface MoleculePayload {
-  pdbString: string;
+  /** @deprecated Use structureString instead. Will be removed in v2.0 */
+  pdbString?: string;
+  /** Structure data as string (PDB or mmCIF format) */
+  structureString?: string;
+  /** Format of the structure data - defaults to 'pdb' for backward compatibility */
+  format?: "pdb" | "mmcif";
   highlights?: MoleculeHighlight[];
   indexToColor?: Map<number, string>;
   style?: {
@@ -103,8 +112,20 @@ const MoleculeViewer = memo(
       const buildStructure = async (payload: MoleculePayload) => {
         if (!plugin.current) return;
 
-        const pdbUrl = URL.createObjectURL(
-          new Blob([payload.pdbString], { type: "text/plain" }),
+        // Get structure string with backward compatibility
+        const structureString = payload.structureString ?? payload.pdbString;
+        if (!structureString) {
+          console.warn(
+            "No structure data provided. Use structureString property.",
+          );
+          return;
+        }
+
+        // Determine format - default to 'pdb' for backward compatibility
+        const format = payload.format ?? "pdb";
+
+        const structureUrl = URL.createObjectURL(
+          new Blob([structureString], { type: "text/plain" }),
         );
 
         /* Colour theme — unchanged from last version */
@@ -130,11 +151,18 @@ const MoleculeViewer = memo(
         /* <── the only line that really changed */
         const repType = repLookup(payload.style);
 
-        return plugin.current
+        // Build trajectory transform chain based on format
+        const builder = plugin.current
           .build()
           .toRoot()
-          .apply(Download, { url: pdbUrl })
-          .apply(TrajectoryFromPDB)
+          .apply(Download, { url: structureUrl });
+
+        const trajectoryBuilder =
+          format === "mmcif"
+            ? builder.apply(ParseCif).apply(TrajectoryFromMmCif)
+            : builder.apply(TrajectoryFromPDB);
+
+        return trajectoryBuilder
           .apply(ModelFromTrajectory)
           .apply(StructureFromModel, {
             type: { name: "assembly", params: {} },

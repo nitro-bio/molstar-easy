@@ -4,13 +4,15 @@
 
 [Documentation](https://docs.nitro.bio)
 
-`molstar-easy` makes it simple to get started using molstar in react projects. It provides a bare-bones api that allows styling of the viewer and the loaded protein structures, as well as annotating specific regions of the protein via highlighting.
+`molstar-easy` makes it simple to get started using molstar in react projects. It provides a bare-bones api that allows styling of the viewer and the loaded protein structures, as well as annotating specific regions of the protein via highlighting. Supports both PDB and mmCIF file formats.
 
 ## Quickstart
 
 ```sh
 npm i @nitro-bio/molstar-easy
 ```
+
+### PDB Format (default)
 
 ```tsx
 import { MoleculeViewer } from "@nitro-bio/molstar-easy";
@@ -37,7 +39,8 @@ export const Demo = () => {
         <MoleculeViewer
           moleculePayloads={[
             {
-              pdbString: pdbStr,
+              structureString: pdbStr,
+              format: "pdb", // optional, defaults to 'pdb'
               highlights: [highlight],
               structureHexColor: "#7279df",
             },
@@ -47,6 +50,70 @@ export const Demo = () => {
     </div>
   );
 };
+```
+
+### mmCIF Format
+
+```tsx
+import { MoleculeViewer } from "@nitro-bio/molstar-easy";
+export const Demo = () => {
+  const highlight = {
+    label: { text: "Active Site", hexColor: "#dc2626", scale: 1.2 },
+    start: 50,
+    end: 65,
+  };
+  const mmcifUrl = "https://files.rcsb.org/download/1CRN.cif";
+  const [mmcifStr, setMmcifStr] = useState<string | null>(null);
+  useEffect(
+    function fetchMmCIF() {
+      fetch(mmcifUrl)
+        .then((res) => res.text())
+        .then((mmcifStr) => setMmcifStr(mmcifStr));
+    },
+    [mmcifUrl],
+  );
+
+  return (
+    <div>
+      {mmcifStr && (
+        <MoleculeViewer
+          moleculePayloads={[
+            {
+              structureString: mmcifStr,
+              format: "mmcif",
+              highlights: [highlight],
+              style: { type: "ribbon" },
+            },
+          ]}
+        />
+      )}
+    </div>
+  );
+};
+```
+
+## Format Support
+
+This library supports both PDB and mmCIF formats:
+
+- **PDB**: Traditional protein structure format, widely supported
+- **mmCIF**: Modern crystallographic information file format, preferred by PDB for large structures
+
+### Backward Compatibility
+
+The `pdbString` property is deprecated but still supported for backward compatibility. It will be removed in v2.0. Please migrate to using `structureString` with the appropriate `format` property.
+
+```tsx
+// ❌ Deprecated (but still works)
+{
+  pdbString: myPdbData
+}
+
+// ✅ Recommended
+{
+  structureString: myStructureData,
+  format: "pdb" // or "mmcif"
+}
 ```
 
 ## Development

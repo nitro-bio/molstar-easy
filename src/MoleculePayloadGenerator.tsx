@@ -12,7 +12,8 @@ export const MoleculePayloadGenerator = ({
   setPayload: (payload: MoleculePayload | null) => void;
 }) => {
   const [pdbId, setPdbId] = useState("1CRN");
-  const [pdbString, setPdbString] = useState<string | null>(null);
+  const [structureString, setStructureString] = useState<string | null>(null);
+  const [format, setFormat] = useState<"pdb" | "mmcif">("pdb");
   const [structureColor, setStructureColor] = useState("#94a3b8");
   const [styleType, setStyleType] = useState<MoleculeStyle>("surface");
   const [highlight, setHighlight] = useState<MoleculeHighlight>({
@@ -25,23 +26,25 @@ export const MoleculePayloadGenerator = ({
     },
   });
   useEffect(
-    function fetchPDB() {
-      fetch(`https://files.rcsb.org/download/${pdbId}.pdb`).then(
+    function fetchStructure() {
+      const fileExtension = format === "mmcif" ? "cif" : "pdb";
+      fetch(`https://files.rcsb.org/download/${pdbId}.${fileExtension}`).then(
         async (response) => {
-          const pdbString = await response.text();
-          setPdbString(pdbString);
+          const structureData = await response.text();
+          setStructureString(structureData);
         },
       );
     },
-    [pdbId],
+    [pdbId, format],
   );
   useEffect(
     function updatePayload() {
-      if (!pdbString) {
+      if (!structureString) {
         setPayload(null);
       } else {
         setPayload({
-          pdbString,
+          structureString,
+          format,
           indexToColor: new Map(
             Array.from({ length: 1000 }, (_, i) => [i, structureColor]),
           ),
@@ -52,7 +55,7 @@ export const MoleculePayloadGenerator = ({
         });
       }
     },
-    [pdbString, structureColor, highlight, styleType],
+    [structureString, format, structureColor, highlight, styleType],
   );
 
   return (
@@ -66,6 +69,17 @@ export const MoleculePayloadGenerator = ({
           value={pdbId}
           onChange={(e) => setPdbId(e.target.value)}
         />
+      </label>
+      <label className="flex flex-col text-xs">
+        Format:
+        <select
+          className="rounded-md text-xs"
+          value={format}
+          onChange={(e) => setFormat(e.target.value as "pdb" | "mmcif")}
+        >
+          <option value="pdb">PDB</option>
+          <option value="mmcif">mmCIF</option>
+        </select>
       </label>
       <label className="flex flex-col text-xs">
         Structure Color:
@@ -82,7 +96,6 @@ export const MoleculePayloadGenerator = ({
           value={styleType}
           onChange={(e) => setStyleType(e.target.value as MoleculeStyle)}
         >
-          <option value="cartoon">Cartoon</option>
           <option value="ball-and-stick">Ball & Stick</option>
           <option value="spacefill">Spacefill</option>
           <option value="surface">Surface</option>
