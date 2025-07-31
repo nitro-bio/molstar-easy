@@ -41,8 +41,6 @@ interface MoleculeHighlight {
 }
 
 interface MoleculePayload {
-  /** @deprecated Use structureString instead. Will be removed in v2.0 */
-  pdbString?: string;
   /** Structure data as string (PDB or mmCIF format) */
   structureString?: string;
   /** Format of the structure data - defaults to 'pdb' for backward compatibility */
@@ -113,7 +111,7 @@ const MoleculeViewer = memo(
         if (!plugin.current) return;
 
         // Get structure string with backward compatibility
-        const structureString = payload.structureString ?? payload.pdbString;
+        const structureString = payload.structureString;
         if (!structureString) {
           console.warn(
             "No structure data provided. Use structureString property.",

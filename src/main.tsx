@@ -1,14 +1,16 @@
+import { cn } from "@utils/stringUtils";
 import { useDeferredValue, useState } from "react";
+import ReactDOM from "react-dom/client";
+import "./index.css";
 import { MoleculePayloadGenerator } from "./MoleculePayloadGenerator";
 import { MoleculePayload, MoleculeViewer } from "./MoleculeViewer";
-import { cn } from "@utils/stringUtils";
 
-export default {
-  title: "MoleculeViewer",
-  component: MoleculeViewer,
-};
+const rootElement = document.getElementById("root");
+if (!rootElement) throw new Error("Failed to find the root element");
 
-export const Demo = () => {
+const root = ReactDOM.createRoot(rootElement);
+
+const App = () => {
   const [backgroundColor, setBackgroundColor] = useState("#f1f1f1");
   const deferredBackgroundColor = useDeferredValue(backgroundColor);
   const [payloads, setPayloads] = useState<(MoleculePayload | null)[]>([null]);
@@ -41,7 +43,7 @@ export const Demo = () => {
         ))}
         <button
           className={cn(
-            "flex items-center justify-center rounded border border-dashed border-zinc-600 px-4 py-2 font-black text-zinc-600",
+            "border-border flex items-center justify-center rounded border border-dashed px-4 py-2",
             payloads.length % 2 == 0 ? "h-fit" : "w-fit",
           )}
           onClick={() =>
@@ -57,7 +59,9 @@ export const Demo = () => {
           backgroundHexColor={deferredBackgroundColor}
           moleculePayloads={payloads}
         />
-      </div>{" "}
+      </div>
     </div>
   );
 };
+
+root.render(<App />);

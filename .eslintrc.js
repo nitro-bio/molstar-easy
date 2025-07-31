@@ -7,7 +7,6 @@ module.exports = {
     "eslint:recommended",
     "plugin:react/recommended",
     "plugin:@typescript-eslint/recommended",
-    "plugin:storybook/recommended",
   ],
   overrides: [],
   parser: "@typescript-eslint/parser",
@@ -24,11 +23,5 @@ module.exports = {
     "react/prop-types": "off",
     "react-refresh/only-export-components": "warn",
   },
-  ignorePatterns: [
-    "storybook-static",
-    "dist",
-    "*.config.js",
-    "*.config.ts",
-    ".eslintrc.js",
-  ],
+  ignorePatterns: ["dist", "*.config.js", "*.config.ts", ".eslintrc.js"],
 };

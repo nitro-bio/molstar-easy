@@ -23,9 +23,5 @@ dist-ssr
 *.sln
 *.sw?
 .vercel
-storybook-static
-storybook-static
 /*.tgz
 /.env
-
-*storybook.log

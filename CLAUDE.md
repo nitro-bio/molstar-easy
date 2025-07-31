@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - 🧹 Lint: `pnpm lint` or `pnpm lint:fix` to auto-fix issues
 - 🎨 Format: `pnpm format` or `pnpm format:fix` to auto-fix format issues
 - 🧪 Test: `pnpm test` (run all) or `pnpm test path/to/file.test.ts` (single test)
-- 🔄 Dev: `pnpm dev` (starts Storybook on port 6006)
+- 🔄 Dev: `pnpm dev` (starts Vite dev server)
 
 ## Code Style Guidelines
 
