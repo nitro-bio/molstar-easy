@@ -9,13 +9,32 @@ import { Color } from "molstar/lib/mol-util/color";
 import { TableLegend } from "molstar/lib/mol-util/legend";
 import { ParamDefinition as PD } from "molstar/lib/mol-util/param-definition";
 
+// Global mutable singleton for custom theme state
+// This allows us to update colors without re-registering the provider
+const CustomThemeState = {
+  indexToColor: new Map<number, string>(),
+  defaultColor: Color(0x94a3b8), // #94a3b8
+};
+
+/**
+ * Update the global custom theme state
+ * Call this before applying theme updates to representations
+ */
+export function updateCustomThemeState(
+  indexToColor: Map<number, string>,
+  defaultColor: Color,
+): void {
+  CustomThemeState.indexToColor = indexToColor;
+  CustomThemeState.defaultColor = defaultColor;
+}
+
 export function CustomColorTheme(
   ctx: ThemeDataContext,
   props: PD.Values<EntityIdColorThemeParams>,
-  indexToColor: Map<number, string>,
-  defaultColor: Color,
 ): ColorTheme<EntityIdColorThemeParams> {
-  // TODO: check this
+  // Read from global singleton instead of closure
+  const { indexToColor, defaultColor } = CustomThemeState;
+
   const color: LocationColor = (location) => {
     if (StructureElement.Location.is(location)) {
       const unsafeUnit = location.unit as unknown as { residueIndex: number[] };
@@ -24,13 +43,13 @@ export function CustomColorTheme(
         ? Color.fromHexStyle(indexToColor.get(residueIndex)!)
         : defaultColor;
     } else {
-      console.log("location is not a StructureElement.Location");
       return defaultColor;
     }
   };
+
   return {
     granularity: "group",
-    factory: () => CustomColorTheme(ctx, props, indexToColor, defaultColor),
+    factory: () => CustomColorTheme(ctx, props),
     color: color,
     props: props,
     description: "Assigns colors based on a custom index",
@@ -42,13 +61,8 @@ export function CustomColorTheme(
     ),
   };
 }
-export const CustomColorThemeProvider = ({
-  indexToColor,
-  defaultColor,
-}: {
-  indexToColor: Map<number, string>;
-  defaultColor: Color;
-}): ColorTheme.Provider<EntityIdColorThemeParams, "nitro-custom-theme"> => {
+
+export const CustomColorThemeProvider = (): ColorTheme.Provider<EntityIdColorThemeParams, "nitro-custom-theme"> => {
   return {
     name: "nitro-custom-theme",
     label: "Nitro Theme",
@@ -57,7 +71,7 @@ export const CustomColorThemeProvider = ({
       ctx: ThemeDataContext,
       props: PD.Values<EntityIdColorThemeParams>,
     ) => {
-      return CustomColorTheme(ctx, props, indexToColor, defaultColor);
+      return CustomColorTheme(ctx, props);
     },
     getParams: getEntityIdColorThemeParams,
     defaultValues: PD.getDefaultValues(EntityIdColorThemeParams),
