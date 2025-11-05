@@ -1,4 +1,4 @@
-name: Library + Storybook Build
+name: Library Build
 
 # on all branches, on push and PR
 on:
@@ -24,11 +24,9 @@ jobs:
         run: pnpm run format
       - name: Run ESLint
         run: pnpm run lint
-      # - name: Run Tests
-      #   run: pnpm run test
       - name: Build component Library
         run: pnpm run build:ci
-      - name: Build Storybook
-        run: pnpm run build-storybook
+      - name: Build
+        run: pnpm run build
         env:
           NODE_OPTIONS: "--max_old_space_size=4096" # to get around JavaScript heap out of memory error

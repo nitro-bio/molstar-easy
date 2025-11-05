@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useSyncExternalStore, useCallback, useMemo, useRef } from "react";
 import { PluginContext } from "molstar/lib/mol-plugin/context";
 import { DefaultPluginSpec } from "molstar/lib/mol-plugin/spec";
@@ -489,11 +490,11 @@ export class MolstarViewerStore {
 
         // Reset theme before applying overpaint - preserve custom theme if active
         if (comps.length > 0) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           await (
             this._snapshot.plugin.managers.structure.component
               .updateRepresentationsTheme as any
           )(
+            // eslint-disable-line @typescript-eslint/no-explicit-any
             comps,
             this.hasCustomTheme
               ? { color: this.themeName } // Keep custom base theme
@@ -734,11 +735,11 @@ export class MolstarViewerStore {
           this._snapshot.plugin.managers.structure.hierarchy.current.structures;
         for (const struct of structures) {
           if (struct.components.length > 0) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             await (
               this._snapshot.plugin.managers.structure.component
                 .updateRepresentationsTheme as any
             )(struct.components, {
+              // eslint-disable-line @typescript-eslint/no-explicit-any
               color: this.themeName,
               colorParams: {
                 value: Color.fromHexStyle(this.currentDefaultColorHex),
@@ -755,11 +756,11 @@ export class MolstarViewerStore {
           this._snapshot.plugin.managers.structure.hierarchy.current.structures;
         for (const struct of structures) {
           if (struct.components.length > 0) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             await (
               this._snapshot.plugin.managers.structure.component
                 .updateRepresentationsTheme as any
             )(struct.components, {
+              // eslint-disable-line @typescript-eslint/no-explicit-any
               color: "uniform",
               colorParams: {
                 value: Color.fromHexStyle(this.currentDefaultColorHex),

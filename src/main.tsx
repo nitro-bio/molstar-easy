@@ -12,6 +12,7 @@ if (!rootElement) throw new Error("Failed to find the root element");
 
 const root = ReactDOM.createRoot(rootElement);
 
+// eslint-disable-next-line react-refresh/only-export-components
 const App = () => {
   const [backgroundColor, setBackgroundColor] = useState("#f1f1f1");
   const deferredBackgroundColor = useDeferredValue(backgroundColor);

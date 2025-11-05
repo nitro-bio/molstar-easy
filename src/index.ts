@@ -1,3 +1,5 @@
+import "./index.css";
+
 export { MoleculeViewer } from "./MoleculeViewer";
 export { MoleculePayloadGenerator } from "./MoleculePayloadGenerator";
 export { MoleculeTransformControls } from "./MoleculeTransformControls";
