@@ -16,7 +16,9 @@ const App = () => {
   const [backgroundColor, setBackgroundColor] = useState("#f1f1f1");
   const deferredBackgroundColor = useDeferredValue(backgroundColor);
   const [payloads, setPayloads] = useState<(MoleculePayload | null)[]>([null]);
-  const [transforms, setTransforms] = useState<(ModelTransform | null)[]>([null]);
+  const [transforms, setTransforms] = useState<(ModelTransform | null)[]>([
+    null,
+  ]);
 
   const setPayload = (index: number, payload: MoleculePayload | null) => {
     setPayloads((prev) => {

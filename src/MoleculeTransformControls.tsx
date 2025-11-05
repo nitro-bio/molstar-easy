@@ -1,5 +1,11 @@
 import { ModelTransform } from "./hooks/useMolstarViewer";
 
+// Helper to safely parse numbers and prevent NaN
+const toNum = (value: string, fallback = 0): number => {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 export const MoleculeTransformControls = ({
   transform,
   setTransform,
@@ -55,8 +61,12 @@ export const MoleculeTransformControls = ({
           type="number"
           className="rounded-md text-xs"
           step="0.1"
-          value={currentTransform.position.x}
-          onChange={(e) => updatePosition("x", parseFloat(e.target.value))}
+          value={
+            Number.isFinite(currentTransform.position.x)
+              ? currentTransform.position.x
+              : 0
+          }
+          onChange={(e) => updatePosition("x", toNum(e.target.value))}
         />
       </label>
       <label className="flex flex-col text-xs">
@@ -65,8 +75,12 @@ export const MoleculeTransformControls = ({
           type="number"
           className="rounded-md text-xs"
           step="0.1"
-          value={currentTransform.position.y}
-          onChange={(e) => updatePosition("y", parseFloat(e.target.value))}
+          value={
+            Number.isFinite(currentTransform.position.y)
+              ? currentTransform.position.y
+              : 0
+          }
+          onChange={(e) => updatePosition("y", toNum(e.target.value))}
         />
       </label>
       <label className="flex flex-col text-xs">
@@ -75,8 +89,12 @@ export const MoleculeTransformControls = ({
           type="number"
           className="rounded-md text-xs"
           step="0.1"
-          value={currentTransform.position.z}
-          onChange={(e) => updatePosition("z", parseFloat(e.target.value))}
+          value={
+            Number.isFinite(currentTransform.position.z)
+              ? currentTransform.position.z
+              : 0
+          }
+          onChange={(e) => updatePosition("z", toNum(e.target.value))}
         />
       </label>
 
@@ -90,8 +108,12 @@ export const MoleculeTransformControls = ({
           type="number"
           className="rounded-md text-xs"
           step="1"
-          value={currentTransform.rotation.x}
-          onChange={(e) => updateRotation("x", parseFloat(e.target.value))}
+          value={
+            Number.isFinite(currentTransform.rotation.x)
+              ? currentTransform.rotation.x
+              : 0
+          }
+          onChange={(e) => updateRotation("x", toNum(e.target.value))}
         />
       </label>
       <label className="flex flex-col text-xs">
@@ -100,8 +122,12 @@ export const MoleculeTransformControls = ({
           type="number"
           className="rounded-md text-xs"
           step="1"
-          value={currentTransform.rotation.y}
-          onChange={(e) => updateRotation("y", parseFloat(e.target.value))}
+          value={
+            Number.isFinite(currentTransform.rotation.y)
+              ? currentTransform.rotation.y
+              : 0
+          }
+          onChange={(e) => updateRotation("y", toNum(e.target.value))}
         />
       </label>
       <label className="flex flex-col text-xs">
@@ -110,8 +136,12 @@ export const MoleculeTransformControls = ({
           type="number"
           className="rounded-md text-xs"
           step="1"
-          value={currentTransform.rotation.z}
-          onChange={(e) => updateRotation("z", parseFloat(e.target.value))}
+          value={
+            Number.isFinite(currentTransform.rotation.z)
+              ? currentTransform.rotation.z
+              : 0
+          }
+          onChange={(e) => updateRotation("z", toNum(e.target.value))}
         />
       </label>
     </div>

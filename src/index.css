@@ -1,19 +1,19 @@
 @import "tailwindcss";
 
 @theme inline {
-	--color-molstareasy-primary: var(--color-primary);
-	--color-molstareasy-secondary: var(--color-secondary);
-	--color-molstareasy-foreground: var(--color-foreground);
-	--color-molstareasy-background: var(--color-background);
+  --color-molstareasy-primary: var(--color-primary);
+  --color-molstareasy-secondary: var(--color-secondary);
+  --color-molstareasy-foreground: var(--color-foreground);
+  --color-molstareasy-background: var(--color-background);
 }
 
 :root {
-	--color-primary: var(--color-emerald-700);
-	--color-secondary: var(--color-zinc-600);
-	--color-foreground: var(--color-zinc-800);
-	--color-background: var(--color-zinc-50);
+  --color-primary: var(--color-emerald-700);
+  --color-secondary: var(--color-zinc-600);
+  --color-foreground: var(--color-zinc-800);
+  --color-background: var(--color-zinc-50);
 }
 
 #molstar-container {
-	background-color: var(--color-background);
+  background-color: var(--color-background);
 }

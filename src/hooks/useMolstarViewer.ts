@@ -15,13 +15,21 @@ import {
 } from "molstar/lib/mol-plugin-state/transforms/model";
 import { StructureRepresentation3D } from "molstar/lib/mol-plugin-state/transforms/representation";
 import { StructureSelection } from "molstar/lib/mol-model/structure";
-import { setStructureOverpaint, clearStructureOverpaint } from "molstar/lib/mol-plugin-state/helpers/structure-overpaint";
+import {
+  setStructureOverpaint,
+  clearStructureOverpaint,
+} from "molstar/lib/mol-plugin-state/helpers/structure-overpaint";
 import { MolScriptBuilder } from "molstar/lib/mol-script/language/builder";
 import { Script } from "molstar/lib/mol-script/script";
-import { CustomColorThemeProvider, updateCustomThemeState } from "@utils/themeUtils";
+import {
+  CustomColorThemeProvider,
+  updateCustomThemeStateFor,
+  clearThemeStateFor,
+} from "@utils/themeUtils";
 import { Mat4, Vec3, Quat } from "molstar/lib/mol-math/linear-algebra";
 import { Euler } from "molstar/lib/mol-math/linear-algebra/3d/euler";
 import { StateTransforms } from "molstar/lib/mol-plugin-state/transforms";
+import type { StateObjectSelector } from "molstar/lib/mol-state/object";
 
 export type MoleculeStyle =
   | "spacefill"
@@ -42,9 +50,7 @@ export interface MoleculeHighlight {
 
 export interface ModelTransform {
   position: { x: number; y: number; z: number };
-  rotation: { x: number; y: number; z: number }; // Euler angles in degrees
-  // Note: Scale is not supported by Molstar's TransformStructureConformation
-  // Use camera zoom instead for scaling visualization
+  rotation: { x: number; y: number; z: number };
 }
 
 export interface MoleculePayload {
@@ -120,14 +126,14 @@ function createTransformMatrix(transform: ModelTransform): Mat4 {
 
   // Create rotation matrix from Euler angles (convert degrees to radians)
   const euler = Euler.create(
-    rotation.x * Math.PI / 180,
-    rotation.y * Math.PI / 180,
-    rotation.z * Math.PI / 180
+    (rotation.x * Math.PI) / 180,
+    (rotation.y * Math.PI) / 180,
+    (rotation.z * Math.PI) / 180,
   );
 
   // Convert Euler to quaternion
   const quat = Quat();
-  Quat.fromEuler(quat, euler, 'XYZ');
+  Quat.fromEuler(quat, euler, "XYZ");
 
   // Create 4x4 rotation matrix from quaternion
   const matrix = Mat4();
@@ -143,7 +149,7 @@ function createTransformMatrix(transform: ModelTransform): Mat4 {
 /** Check if two transforms are equal */
 function transformsEqual(
   a: ModelTransform | undefined,
-  b: ModelTransform | undefined
+  b: ModelTransform | undefined,
 ): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -174,14 +180,21 @@ export class MolstarViewerStore {
   private lastHighlights: (MoleculeHighlight[] | undefined)[] = [];
   // Track label refs for each structure: Map<structureIndex, labelRefs[]>
   private labelRefs: Map<number, LabelRef[]> = new Map();
-  // Track transform node refs: Map<structureIndex, transform node ref>
-  private transformRefs: Map<number, unknown> = new Map();
+  // Track transform node refs: Map<structureIndex, transform selector>
+  private transformRefs: Map<number, StateObjectSelector> = new Map();
   // Track last transforms to detect changes
   private lastTransforms: (ModelTransform | undefined)[] = [];
 
-  private currentProvider: ReturnType<typeof CustomColorThemeProvider> | null = null;
+  private currentProvider: ReturnType<typeof CustomColorThemeProvider> | null =
+    null;
   private currentDefaultColorHex = "#94a3b8";
   private hasCustomTheme = false;
+  private themeName: string;
+
+  constructor(private id = crypto.randomUUID()) {
+    // Per-viewer theme name to prevent cross-viewer color bleeding
+    this.themeName = `nitro-custom-theme:${this.id}`;
+  }
 
   getSnapshot(): ViewerSnapshot {
     return this._snapshot;
@@ -278,6 +291,8 @@ export class MolstarViewerStore {
     this.hasCustomTheme = false;
     this.initState = "idle";
     this.initPromise = null;
+    // Clean up theme state to prevent memory leak
+    clearThemeStateFor(this.themeName);
     // Update snapshot once with both ready and plugin
     this.setSnapshot({ ready: false, plugin: null });
   }
@@ -317,7 +332,10 @@ export class MolstarViewerStore {
       }
 
       // If structures changed, we need to rebuild
-      if (needsBuild.length > 0 || newKeys.length !== this.structureKeys.length) {
+      if (
+        needsBuild.length > 0 ||
+        newKeys.length !== this.structureKeys.length
+      ) {
         // Clear and rebuild all structures
         this._snapshot.plugin.clear();
         this.structureKeys = [];
@@ -335,23 +353,28 @@ export class MolstarViewerStore {
 
           // Apply transform if specified
           if (payload.transform) {
-            const structures = this._snapshot.plugin.managers.structure.hierarchy.current.structures;
+            const structures =
+              this._snapshot.plugin.managers.structure.hierarchy.current
+                .structures;
             const struct = structures[idx];
 
             if (struct) {
               const matrix = createTransformMatrix(payload.transform);
-              const update = this._snapshot.plugin.build()
+              const update = this._snapshot.plugin
+                .build()
                 .to(struct.cell)
                 .insert(StateTransforms.Model.TransformStructureConformation, {
                   transform: {
-                    name: 'matrix',
-                    params: { data: matrix, transpose: false }
-                  }
+                    name: "matrix",
+                    params: { data: matrix, transpose: false },
+                  },
                 });
 
-              const result = await update.commit();
-              // Store the transform node ref (it's the last applied transform)
-              this.transformRefs.set(idx, result);
+              const res = await update.commit();
+              // Handle Molstar version differences: result may be selector or { selector }
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const selector = (res as any)?.selector ?? res;
+              this.transformRefs.set(idx, selector);
               this.lastTransforms[idx] = payload.transform;
             }
           }
@@ -372,66 +395,76 @@ export class MolstarViewerStore {
     if (!this._snapshot.plugin || !payload.structureString) return;
 
     const format = payload.format ?? "pdb";
-    const structureUrl = URL.createObjectURL(
-      new Blob([payload.structureString], { type: "text/plain" }),
-    );
+    const blob = new Blob([payload.structureString], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
 
-    // Determine color theme
-    let colorTheme = {
-      name: "uniform",
-      params: { value: Color.fromHexStyle(this.currentDefaultColorHex) },
-    };
-
-    if (payload.indexToColor && payload.indexToColor.size > 0) {
-      // Update the custom theme state
-      updateCustomThemeState(
-        payload.indexToColor,
-        Color.fromHexStyle(this.currentDefaultColorHex),
-      );
-
-      const reg = this._snapshot.plugin.representation.structure.themes.colorThemeRegistry;
-      const themeName = "nitro-custom-theme";
-
-      // Register provider if not already registered
-      if (!this.currentProvider) {
-        this.currentProvider = CustomColorThemeProvider();
-        reg.add(this.currentProvider);
-      }
-
-      colorTheme = {
-        name: themeName,
+    try {
+      // Determine color theme
+      let colorTheme = {
+        name: "uniform",
         params: { value: Color.fromHexStyle(this.currentDefaultColorHex) },
       };
-      this.hasCustomTheme = true;
+
+      if (payload.indexToColor && payload.indexToColor.size > 0) {
+        // Update the custom theme state for this viewer
+        updateCustomThemeStateFor(
+          this.themeName,
+          payload.indexToColor,
+          Color.fromHexStyle(this.currentDefaultColorHex),
+        );
+
+        const reg =
+          this._snapshot.plugin.representation.structure.themes
+            .colorThemeRegistry;
+
+        // Register provider if not already registered
+        if (!this.currentProvider) {
+          this.currentProvider = CustomColorThemeProvider(this.themeName);
+          reg.add(this.currentProvider);
+        }
+
+        colorTheme = {
+          name: this.themeName,
+          params: { value: Color.fromHexStyle(this.currentDefaultColorHex) },
+        };
+        this.hasCustomTheme = true;
+      }
+
+      const repType = repLookup(payload.style);
+
+      // Build transform chain
+      const builder = this._snapshot.plugin
+        .build()
+        .toRoot()
+        .apply(Download, { url });
+
+      const trajectoryBuilder =
+        format === "mmcif"
+          ? builder.apply(ParseCif).apply(TrajectoryFromMmCif)
+          : builder.apply(TrajectoryFromPDB);
+
+      await trajectoryBuilder
+        .apply(ModelFromTrajectory)
+        .apply(StructureFromModel, {
+          type: { name: "assembly", params: {} },
+        })
+        .apply(StructureComponent, {
+          type: { name: "static", params: "polymer" },
+        })
+        .apply(StructureRepresentation3D, { type: repType, colorTheme })
+        .commit();
+    } finally {
+      // Always revoke the blob URL to prevent memory leak
+      URL.revokeObjectURL(url);
     }
-
-    const repType = repLookup(payload.style);
-
-    // Build transform chain
-    const builder = this._snapshot.plugin.build().toRoot().apply(Download, { url: structureUrl });
-
-    const trajectoryBuilder =
-      format === "mmcif"
-        ? builder.apply(ParseCif).apply(TrajectoryFromMmCif)
-        : builder.apply(TrajectoryFromPDB);
-
-    await trajectoryBuilder
-      .apply(ModelFromTrajectory)
-      .apply(StructureFromModel, {
-        type: { name: "assembly", params: {} },
-      })
-      .apply(StructureComponent, {
-        type: { name: "static", params: "polymer" },
-      })
-      .apply(StructureRepresentation3D, { type: repType, colorTheme })
-      .commit();
   }
 
   async applyHighlights(payloads: (MoleculePayload | null)[]): Promise<void> {
     if (!this._snapshot.plugin) return;
 
     try {
-      const structures = this._snapshot.plugin.managers.structure.hierarchy.current.structures;
+      const structures =
+        this._snapshot.plugin.managers.structure.hierarchy.current.structures;
       const state = this._snapshot.plugin.state.data;
 
       // Process each structure individually
@@ -454,8 +487,29 @@ export class MolstarViewerStore {
         // Clear overpaint for this structure
         await clearStructureOverpaint(this._snapshot.plugin, comps);
 
+        // Reset theme before applying overpaint - preserve custom theme if active
+        if (comps.length > 0) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          await (
+            this._snapshot.plugin.managers.structure.component
+              .updateRepresentationsTheme as any
+          )(
+            comps,
+            this.hasCustomTheme
+              ? { color: this.themeName } // Keep custom base theme
+              : {
+                  color: "uniform",
+                  colorParams: {
+                    value: Color.fromHexStyle(this.currentDefaultColorHex),
+                  },
+                },
+          );
+        }
+
         const existingLabels = this.labelRefs.get(idx) || [];
-        const visibleHighlights = (newHighlights || []).filter(h => !h.hidden);
+        const visibleHighlights = (newHighlights || []).filter(
+          (h) => !h.hidden,
+        );
 
         // Check if we can update labels in place
         const canUpdateInPlace =
@@ -480,12 +534,14 @@ export class MolstarViewerStore {
 
           await update.commit();
         } else {
-          // Delete old labels
+          // Delete old labels (both selection and representation to avoid state bloat)
           if (existingLabels.length > 0) {
             const deleteUpdate = state.build();
             for (const labelRef of existingLabels) {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               deleteUpdate.delete((labelRef.selection as any).ref);
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              deleteUpdate.delete((labelRef.representation as any).ref);
             }
             await deleteUpdate.commit();
             this.labelRefs.delete(idx);
@@ -504,7 +560,8 @@ export class MolstarViewerStore {
                       h.start,
                       h.end,
                     ]),
-                    "group-by": Q.struct.atomProperty.macromolecular.residueKey(),
+                    "group-by":
+                      Q.struct.atomProperty.macromolecular.residueKey(),
                   }),
                 root,
               );
@@ -512,13 +569,17 @@ export class MolstarViewerStore {
               const loci = StructureSelection.toLociWithSourceUnits(sel);
 
               // Add label and store ref
-              const labelRef = await this._snapshot.plugin.managers.structure.measurement.addLabel(loci, {
-                labelParams: {
-                  customText: h.label.text,
-                  textColor: Color.fromHexStyle(h.label.hexColor),
-                  sizeFactor: h.label.scale ?? 1,
-                },
-              });
+              const labelRef =
+                await this._snapshot.plugin.managers.structure.measurement.addLabel(
+                  loci,
+                  {
+                    labelParams: {
+                      customText: h.label.text,
+                      textColor: Color.fromHexStyle(h.label.hexColor),
+                      sizeFactor: h.label.scale ?? 1,
+                    },
+                  },
+                );
 
               if (labelRef) {
                 newLabelRefs.push(labelRef);
@@ -570,7 +631,8 @@ export class MolstarViewerStore {
 
     try {
       const state = this._snapshot.plugin.state.data;
-      const structures = this._snapshot.plugin.managers.structure.hierarchy.current.structures;
+      const structures =
+        this._snapshot.plugin.managers.structure.hierarchy.current.structures;
 
       // Process each structure individually
       for (let idx = 0; idx < payloads.length; idx++) {
@@ -590,34 +652,40 @@ export class MolstarViewerStore {
           // Update existing transform
           const matrix = createTransformMatrix(newTransform);
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await state.build().to(transformRef as any).update({
-            transform: {
-              name: 'matrix',
-              params: { data: matrix, transpose: false }
-            }
-          }).commit();
+          await state
+            .build()
+            .to(transformRef)
+            .update({
+              transform: {
+                name: "matrix",
+                params: { data: matrix, transpose: false },
+              },
+            })
+            .commit();
 
           this.lastTransforms[idx] = newTransform;
         } else if (!transformRef && newTransform && struct) {
           // Add new transform
           const matrix = createTransformMatrix(newTransform);
-          const update = this._snapshot.plugin.build()
+          const update = this._snapshot.plugin
+            .build()
             .to(struct.cell)
             .insert(StateTransforms.Model.TransformStructureConformation, {
               transform: {
-                name: 'matrix',
-                params: { data: matrix, transpose: false }
-              }
+                name: "matrix",
+                params: { data: matrix, transpose: false },
+              },
             });
 
-          const result = await update.commit();
-          this.transformRefs.set(idx, result);
+          const res = await update.commit();
+          // Handle Molstar version differences: result may be selector or { selector }
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const selector = (res as any)?.selector ?? res;
+          this.transformRefs.set(idx, selector);
           this.lastTransforms[idx] = newTransform;
         } else if (transformRef && !newTransform) {
           // Remove transform
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          await state.build().delete((transformRef as any).ref).commit();
+          await state.build().delete(transformRef.ref).commit();
           this.transformRefs.delete(idx);
           this.lastTransforms[idx] = undefined;
         }
@@ -640,18 +708,21 @@ export class MolstarViewerStore {
     }
 
     try {
-      const reg = this._snapshot.plugin.representation.structure.themes.colorThemeRegistry;
+      const reg =
+        this._snapshot.plugin.representation.structure.themes
+          .colorThemeRegistry;
 
       if (indexToColor && indexToColor.size > 0) {
-        // Update the global theme state
-        updateCustomThemeState(
+        // Update the theme state for this viewer
+        updateCustomThemeStateFor(
+          this.themeName,
           indexToColor,
           Color.fromHexStyle(this.currentDefaultColorHex),
         );
 
         // Register provider if not already registered
         if (!this.currentProvider) {
-          this.currentProvider = CustomColorThemeProvider();
+          this.currentProvider = CustomColorThemeProvider(this.themeName);
           reg.add(this.currentProvider);
         }
 
@@ -659,16 +730,20 @@ export class MolstarViewerStore {
 
         // Update all representations to use the custom theme
         // Get all structure components
-        const structures = this._snapshot.plugin.managers.structure.hierarchy.current.structures;
+        const structures =
+          this._snapshot.plugin.managers.structure.hierarchy.current.structures;
         for (const struct of structures) {
           if (struct.components.length > 0) {
-            await this._snapshot.plugin.managers.structure.component.updateRepresentationsTheme(
-              struct.components,
-              {
-                color: "nitro-custom-theme",
-                colorParams: { value: Color.fromHexStyle(this.currentDefaultColorHex) },
-              } as unknown as Parameters<typeof this._snapshot.plugin.managers.structure.component.updateRepresentationsTheme>[1],
-            );
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (
+              this._snapshot.plugin.managers.structure.component
+                .updateRepresentationsTheme as any
+            )(struct.components, {
+              color: this.themeName,
+              colorParams: {
+                value: Color.fromHexStyle(this.currentDefaultColorHex),
+              },
+            });
           }
         }
       } else {
@@ -676,16 +751,20 @@ export class MolstarViewerStore {
         this.hasCustomTheme = false;
 
         // Get all structure components
-        const structures = this._snapshot.plugin.managers.structure.hierarchy.current.structures;
+        const structures =
+          this._snapshot.plugin.managers.structure.hierarchy.current.structures;
         for (const struct of structures) {
           if (struct.components.length > 0) {
-            await this._snapshot.plugin.managers.structure.component.updateRepresentationsTheme(
-              struct.components,
-              {
-                color: "uniform",
-                colorParams: { value: Color.fromHexStyle(this.currentDefaultColorHex) },
-              } as unknown as Parameters<typeof this._snapshot.plugin.managers.structure.component.updateRepresentationsTheme>[1],
-            );
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (
+              this._snapshot.plugin.managers.structure.component
+                .updateRepresentationsTheme as any
+            )(struct.components, {
+              color: "uniform",
+              colorParams: {
+                value: Color.fromHexStyle(this.currentDefaultColorHex),
+              },
+            });
           }
         }
       }
@@ -707,11 +786,26 @@ function getOrCreateStore(viewerId: string): MolstarViewerStore {
   return viewerStores.get(viewerId)!;
 }
 
+/**
+ * Destroy a viewer store and clean up all resources
+ * Call this when a viewer is unmounted to prevent memory leaks
+ */
+export function destroyViewer(viewerId: string): void {
+  const store = viewerStores.get(viewerId);
+  if (store) {
+    store.dispose();
+    viewerStores.delete(viewerId);
+  }
+}
+
 export function useMolstarViewer(viewerId: string) {
   const storeRef = useRef(getOrCreateStore(viewerId));
   const store = storeRef.current;
 
-  const subscribe = useCallback((listener: () => void) => store.subscribe(listener), [store]);
+  const subscribe = useCallback(
+    (listener: () => void) => store.subscribe(listener),
+    [store],
+  );
   const getSnap = useCallback(() => store.getSnapshot(), [store]);
 
   const snapshot = useSyncExternalStore(subscribe, getSnap, getSnap);
@@ -725,15 +819,19 @@ export function useMolstarViewer(viewerId: string) {
       ) => store.init(canvas, parent, opts),
       dispose: () => store.dispose(),
       unmountCanvas: () => store.unmountCanvas(),
-      ensurePayloads: (payloads: (MoleculePayload | null)[], defaultHex?: string) =>
-        store.ensurePayloads(payloads, defaultHex),
+      ensurePayloads: (
+        payloads: (MoleculePayload | null)[],
+        defaultHex?: string,
+      ) => store.ensurePayloads(payloads, defaultHex),
       applyHighlights: (payloads: (MoleculePayload | null)[]) =>
         store.applyHighlights(payloads),
       applyTransforms: (payloads: (MoleculePayload | null)[]) =>
         store.applyTransforms(payloads),
       setBackground: (hex: string) => store.setBackground(hex),
-      setCustomTheme: (indexToColor: Map<number, string> | null, defaultHex?: string) =>
-        store.setCustomTheme(indexToColor, defaultHex),
+      setCustomTheme: (
+        indexToColor: Map<number, string> | null,
+        defaultHex?: string,
+      ) => store.setCustomTheme(indexToColor, defaultHex),
     }),
     [store],
   );
