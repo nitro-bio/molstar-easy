@@ -1,11 +1,10 @@
 {
   "name": "@nitro-bio/molstar-easy",
   "private": false,
-  "version": "0.0.16",
+  "version": "0.0.17",
   "scripts": {
-    "build:ci": "vite build && pnpm build-css",
-    "build": "pnpm lint && vite build && pnpm build-css",
-    "build-css": "npx tailwindcss -o ./molstar-easy.css --minify && mv ./molstar-easy.css ./dist/molstar-easy.css",
+    "build:ci": "vite build",
+    "build": "pnpm lint && vite build",
     "dev": "vite",
     "format": "prettier --check \"**/*.{js,jsx,ts,tsx,json,css,md}\" --config package.json",
     "format:fix": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css,md}\" --config package.json",
