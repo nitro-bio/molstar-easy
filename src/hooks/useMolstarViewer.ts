@@ -59,6 +59,7 @@ export interface MoleculePayload {
   format?: "pdb" | "mmcif";
   highlights?: MoleculeHighlight[];
   indexToColor?: Map<number, string>;
+  baseHexColor?: string;
   style?: {
     type: MoleculeStyle;
     params?: Record<string, unknown>;
@@ -164,6 +165,20 @@ function transformsEqual(
   );
 }
 
+/** Check if two color maps are shallowly equal */
+function mapShallowEqual(
+  a: Map<number, string> | null | undefined,
+  b: Map<number, string> | null | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.size !== b.size) return false;
+  for (const [k, v] of a) {
+    if (b.get(k) !== v) return false;
+  }
+  return true;
+}
+
 type InitState = "idle" | "pending" | "ready";
 
 // Type for storing label references (complex Molstar types, use unknown for storage)
@@ -186,15 +201,21 @@ export class MolstarViewerStore {
   // Track last transforms to detect changes
   private lastTransforms: (ModelTransform | undefined)[] = [];
 
-  private currentProvider: ReturnType<typeof CustomColorThemeProvider> | null =
-    null;
+  // Per-structure theme state
+  private themePrefix: string;
+  private themeNamesByIndex = new Map<number, string>();
+  private themeProvidersByIndex = new Map<
+    number,
+    ReturnType<typeof CustomColorThemeProvider>
+  >();
+  private lastIndexToColorByIndex: (Map<number, string> | null)[] = [];
+  private lastBaseHexByIndex: (string | null)[] = [];
+  private hasCustomThemeIndex = new Set<number>();
   private currentDefaultColorHex = "#94a3b8";
-  private hasCustomTheme = false;
-  private themeName: string;
 
   constructor(private id = crypto.randomUUID()) {
-    // Per-viewer theme name to prevent cross-viewer color bleeding
-    this.themeName = `nitro-custom-theme:${this.id}`;
+    // Per-viewer theme prefix to prevent cross-viewer color bleeding
+    this.themePrefix = `nitro-custom-theme:${this.id}`;
   }
 
   getSnapshot(): ViewerSnapshot {
@@ -278,6 +299,69 @@ export class MolstarViewerStore {
     this.viewerAttached = false;
   }
 
+  /**
+   * Resolve the appropriate color theme for a structure at a given index
+   * Returns theme name and params based on indexToColor map and baseHexColor
+   */
+  private async resolveThemeForStructure(
+    idx: number,
+    indexToColor: Map<number, string> | null | undefined,
+    baseHex: string | null | undefined,
+  ): Promise<{ name: string; params: Record<string, unknown> }> {
+    if (!this._snapshot.plugin) {
+      return {
+        name: "uniform",
+        params: { value: Color.fromHexStyle(this.currentDefaultColorHex) },
+      };
+    }
+
+    // Determine the base color for this structure
+    const baseColor = baseHex ?? this.currentDefaultColorHex;
+
+    // If we have a color map, use custom theme
+    if (indexToColor && indexToColor.size > 0) {
+      const themeName = `${this.themePrefix}:${idx}`;
+      this.themeNamesByIndex.set(idx, themeName);
+
+      // Update theme state with base color fallback
+      updateCustomThemeStateFor(
+        themeName,
+        indexToColor,
+        Color.fromHexStyle(baseColor),
+      );
+
+      // Register provider if not already registered in Mol*'s registry
+      const reg =
+        this._snapshot.plugin.representation.structure.themes
+          .colorThemeRegistry;
+      if (!this.themeProvidersByIndex.has(idx)) {
+        const provider = CustomColorThemeProvider(themeName);
+        try {
+          // Try to add the provider - will throw if already registered
+          reg.add(provider);
+        } catch (e) {
+          // Provider already exists in registry (e.g., after rebuild)
+          // This is fine - we'll just use the existing one
+        }
+        this.themeProvidersByIndex.set(idx, provider);
+      }
+
+      this.hasCustomThemeIndex.add(idx);
+
+      return {
+        name: themeName,
+        params: { value: Color.fromHexStyle(baseColor) },
+      };
+    }
+
+    // No custom map - use uniform theme with base color
+    this.hasCustomThemeIndex.delete(idx);
+    return {
+      name: "uniform",
+      params: { value: Color.fromHexStyle(baseColor) },
+    };
+  }
+
   dispose(): void {
     this.viewerAttached = false;
     if (this._snapshot.plugin) {
@@ -288,12 +372,19 @@ export class MolstarViewerStore {
     this.labelRefs.clear();
     this.transformRefs.clear();
     this.lastTransforms = [];
-    this.currentProvider = null;
-    this.hasCustomTheme = false;
     this.initState = "idle";
     this.initPromise = null;
-    // Clean up theme state to prevent memory leak
-    clearThemeStateFor(this.themeName);
+
+    // Clean up all per-structure theme state to prevent memory leaks
+    for (const themeName of this.themeNamesByIndex.values()) {
+      clearThemeStateFor(themeName);
+    }
+    this.themeNamesByIndex.clear();
+    this.themeProvidersByIndex.clear();
+    this.lastIndexToColorByIndex = [];
+    this.lastBaseHexByIndex = [];
+    this.hasCustomThemeIndex.clear();
+
     // Update snapshot once with both ready and plugin
     this.setSnapshot({ ready: false, plugin: null });
   }
@@ -332,12 +423,14 @@ export class MolstarViewerStore {
         }
       }
 
-      // If structures changed, we need to rebuild
-      if (
-        needsBuild.length > 0 ||
-        newKeys.length !== this.structureKeys.length
-      ) {
-        // Clear and rebuild all structures
+      const isGrowing = newKeys.length > this.structureKeys.length;
+      const isShrinking = newKeys.length < this.structureKeys.length;
+      const isPureAddition =
+        isGrowing && needsBuild.every((i) => i >= this.structureKeys.length);
+
+      // Determine rebuild strategy
+      if (isShrinking || (needsBuild.length > 0 && !isPureAddition)) {
+        // Full rebuild needed: structures removed or existing ones changed
         this._snapshot.plugin.clear();
         this.structureKeys = [];
         this.lastHighlights = [];
@@ -345,11 +438,21 @@ export class MolstarViewerStore {
         this.transformRefs.clear();
         this.lastTransforms = [];
 
+        // Clear per-structure theme state
+        for (const themeName of this.themeNamesByIndex.values()) {
+          clearThemeStateFor(themeName);
+        }
+        this.themeNamesByIndex.clear();
+        this.themeProvidersByIndex.clear();
+        this.lastIndexToColorByIndex = [];
+        this.lastBaseHexByIndex = [];
+        this.hasCustomThemeIndex.clear();
+
         for (let idx = 0; idx < payloads.length; idx++) {
           const payload = payloads[idx];
           if (!payload || !payload.structureString) continue;
 
-          await this.buildStructure(payload);
+          await this.buildStructure(payload, idx);
           this.structureKeys.push(newKeys[idx]);
 
           // Apply transform if specified
@@ -383,6 +486,48 @@ export class MolstarViewerStore {
 
         // Reset camera after new structures are loaded
         this._snapshot.plugin.canvas3d?.requestCameraReset();
+      } else if (isPureAddition) {
+        // Incremental addition - only build new structures
+        for (
+          let idx = this.structureKeys.length;
+          idx < payloads.length;
+          idx++
+        ) {
+          const payload = payloads[idx];
+          if (!payload || !payload.structureString) continue;
+
+          await this.buildStructure(payload, idx);
+          this.structureKeys.push(newKeys[idx]);
+
+          // Apply transform if specified
+          if (payload.transform) {
+            const structures =
+              this._snapshot.plugin.managers.structure.hierarchy.current
+                .structures;
+            const struct = structures[idx];
+
+            if (struct) {
+              const matrix = createTransformMatrix(payload.transform);
+              const update = this._snapshot.plugin
+                .build()
+                .to(struct.cell)
+                .insert(StateTransforms.Model.TransformStructureConformation, {
+                  transform: {
+                    name: "matrix",
+                    params: { data: matrix, transpose: false },
+                  },
+                });
+
+              const res = await update.commit();
+              // Handle Molstar version differences: result may be selector or { selector }
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const selector = (res as any)?.selector ?? res;
+              this.transformRefs.set(idx, selector);
+              this.lastTransforms[idx] = payload.transform;
+            }
+          }
+        }
+        // No camera reset for incremental additions - keeps current view
       }
 
       this._snapshot.plugin.canvas3d?.resume();
@@ -392,7 +537,10 @@ export class MolstarViewerStore {
     }
   }
 
-  private async buildStructure(payload: MoleculePayload): Promise<void> {
+  private async buildStructure(
+    payload: MoleculePayload,
+    idx: number,
+  ): Promise<void> {
     if (!this._snapshot.plugin || !payload.structureString) return;
 
     const format = payload.format ?? "pdb";
@@ -400,36 +548,12 @@ export class MolstarViewerStore {
     const url = URL.createObjectURL(blob);
 
     try {
-      // Determine color theme
-      let colorTheme = {
-        name: "uniform",
-        params: { value: Color.fromHexStyle(this.currentDefaultColorHex) },
-      };
-
-      if (payload.indexToColor && payload.indexToColor.size > 0) {
-        // Update the custom theme state for this viewer
-        updateCustomThemeStateFor(
-          this.themeName,
-          payload.indexToColor,
-          Color.fromHexStyle(this.currentDefaultColorHex),
-        );
-
-        const reg =
-          this._snapshot.plugin.representation.structure.themes
-            .colorThemeRegistry;
-
-        // Register provider if not already registered
-        if (!this.currentProvider) {
-          this.currentProvider = CustomColorThemeProvider(this.themeName);
-          reg.add(this.currentProvider);
-        }
-
-        colorTheme = {
-          name: this.themeName,
-          params: { value: Color.fromHexStyle(this.currentDefaultColorHex) },
-        };
-        this.hasCustomTheme = true;
-      }
+      // Resolve color theme for this structure
+      const colorTheme = await this.resolveThemeForStructure(
+        idx,
+        payload.indexToColor ?? null,
+        payload.baseHexColor ?? null,
+      );
 
       const repType = repLookup(payload.style);
 
@@ -488,22 +612,24 @@ export class MolstarViewerStore {
         // Clear overpaint for this structure
         await clearStructureOverpaint(this._snapshot.plugin, comps);
 
-        // Reset theme before applying overpaint - preserve custom theme if active
+        // Reset theme before applying overpaint - use per-structure base theme
         if (comps.length > 0) {
+          const baseTheme = await this.resolveThemeForStructure(
+            idx,
+            payload?.indexToColor ?? null,
+            payload?.baseHexColor ?? null,
+          );
+
           await (
             this._snapshot.plugin.managers.structure.component
               .updateRepresentationsTheme as any
           )(
             // eslint-disable-line @typescript-eslint/no-explicit-any
             comps,
-            this.hasCustomTheme
-              ? { color: this.themeName } // Keep custom base theme
-              : {
-                  color: "uniform",
-                  colorParams: {
-                    value: Color.fromHexStyle(this.currentDefaultColorHex),
-                  },
-                },
+            {
+              color: baseTheme.name,
+              colorParams: baseTheme.params,
+            },
           );
         }
 
@@ -698,6 +824,62 @@ export class MolstarViewerStore {
     }
   }
 
+  async applyThemes(payloads: (MoleculePayload | null)[]): Promise<void> {
+    if (!this._snapshot.plugin) return;
+
+    try {
+      const structures =
+        this._snapshot.plugin.managers.structure.hierarchy.current.structures;
+
+      // Process each structure individually
+      for (let idx = 0; idx < payloads.length; idx++) {
+        const payload = payloads[idx];
+        const newMap = payload?.indexToColor ?? null;
+        const newBase = payload?.baseHexColor ?? null;
+        const oldMap = this.lastIndexToColorByIndex[idx] ?? null;
+        const oldBase = this.lastBaseHexByIndex[idx] ?? null;
+
+        // Skip if both map and base color haven't changed for this structure
+        if (mapShallowEqual(newMap, oldMap) && newBase === oldBase) {
+          continue;
+        }
+
+        const struct = structures[idx];
+        if (!struct || struct.components.length === 0) continue;
+
+        // Resolve theme for this structure
+        const colorTheme = await this.resolveThemeForStructure(
+          idx,
+          newMap,
+          newBase,
+        );
+
+        // Update the representation theme
+        await (
+          this._snapshot.plugin.managers.structure.component
+            .updateRepresentationsTheme as any
+        )(struct.components, {
+          // eslint-disable-line @typescript-eslint/no-explicit-any
+          color: colorTheme.name,
+          colorParams: colorTheme.params,
+        });
+
+        // Update cache
+        this.lastIndexToColorByIndex[idx] = newMap;
+        this.lastBaseHexByIndex[idx] = newBase;
+      }
+
+      this._snapshot.plugin.canvas3d?.requestDraw();
+    } catch (error) {
+      console.error("Failed to apply themes:", error);
+    }
+  }
+
+  /**
+   * Legacy API for backward compatibility
+   * Applies the same color map to all structures
+   * @deprecated Use applyThemes() instead for per-structure themes
+   */
   async setCustomTheme(
     indexToColor: Map<number, string> | null,
     defaultHex?: string,
@@ -709,68 +891,20 @@ export class MolstarViewerStore {
     }
 
     try {
-      const reg =
-        this._snapshot.plugin.representation.structure.themes
-          .colorThemeRegistry;
+      // Get all loaded structures
+      const structures =
+        this._snapshot.plugin.managers.structure.hierarchy.current.structures;
 
-      if (indexToColor && indexToColor.size > 0) {
-        // Update the theme state for this viewer
-        updateCustomThemeStateFor(
-          this.themeName,
-          indexToColor,
-          Color.fromHexStyle(this.currentDefaultColorHex),
-        );
+      // Create synthetic payloads array with same map for all structures
+      const syntheticPayloads: (MoleculePayload | null)[] = structures.map(
+        () => ({
+          indexToColor: indexToColor ?? undefined,
+          baseHexColor: undefined,
+        }),
+      );
 
-        // Register provider if not already registered
-        if (!this.currentProvider) {
-          this.currentProvider = CustomColorThemeProvider(this.themeName);
-          reg.add(this.currentProvider);
-        }
-
-        this.hasCustomTheme = true;
-
-        // Update all representations to use the custom theme
-        // Get all structure components
-        const structures =
-          this._snapshot.plugin.managers.structure.hierarchy.current.structures;
-        for (const struct of structures) {
-          if (struct.components.length > 0) {
-            await (
-              this._snapshot.plugin.managers.structure.component
-                .updateRepresentationsTheme as any
-            )(struct.components, {
-              // eslint-disable-line @typescript-eslint/no-explicit-any
-              color: this.themeName,
-              colorParams: {
-                value: Color.fromHexStyle(this.currentDefaultColorHex),
-              },
-            });
-          }
-        }
-      } else {
-        // No custom theme, use uniform color
-        this.hasCustomTheme = false;
-
-        // Get all structure components
-        const structures =
-          this._snapshot.plugin.managers.structure.hierarchy.current.structures;
-        for (const struct of structures) {
-          if (struct.components.length > 0) {
-            await (
-              this._snapshot.plugin.managers.structure.component
-                .updateRepresentationsTheme as any
-            )(struct.components, {
-              // eslint-disable-line @typescript-eslint/no-explicit-any
-              color: "uniform",
-              colorParams: {
-                value: Color.fromHexStyle(this.currentDefaultColorHex),
-              },
-            });
-          }
-        }
-      }
-
-      this._snapshot.plugin.canvas3d?.requestDraw();
+      // Delegate to applyThemes
+      await this.applyThemes(syntheticPayloads);
     } catch (error) {
       console.error("Failed to set custom theme:", error);
     }
@@ -828,6 +962,8 @@ export function useMolstarViewer(viewerId: string) {
         store.applyHighlights(payloads),
       applyTransforms: (payloads: (MoleculePayload | null)[]) =>
         store.applyTransforms(payloads),
+      applyThemes: (payloads: (MoleculePayload | null)[]) =>
+        store.applyThemes(payloads),
       setBackground: (hex: string) => store.setBackground(hex),
       setCustomTheme: (
         indexToColor: Map<number, string> | null,

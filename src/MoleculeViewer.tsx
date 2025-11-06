@@ -68,18 +68,14 @@ const MoleculeViewer = memo(
       if (!ready) return;
 
       (async () => {
-        // Find if any payload has custom colors
-        const indexToColorMap =
-          moleculePayloads.find((p) => p?.indexToColor)?.indexToColor ?? null;
-
-        // Update theme first if needed
-        await api.setCustomTheme(indexToColorMap, DEFAULT_STRUCTURE_COLOR);
-
         // Ensure structures are loaded (only rebuilds if content changed)
         await api.ensurePayloads(moleculePayloads, DEFAULT_STRUCTURE_COLOR);
 
         // Apply transforms imperatively (no rebuilds)
         await api.applyTransforms(moleculePayloads);
+
+        // Apply per-structure themes imperatively (no rebuilds)
+        await api.applyThemes(moleculePayloads);
 
         // Apply highlights imperatively (no rebuilds)
         await api.applyHighlights(moleculePayloads);
